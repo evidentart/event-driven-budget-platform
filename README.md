@@ -27,6 +27,7 @@ This project demonstrates:
 9. Frontend fetches budget and provides AI insight APIs for user-facing warnings and recommendations.
 
 ## Architecture
+![Architecture Diagram](architecture_diagram.png)
 
 ```text
 Frontend (React + Vite)
