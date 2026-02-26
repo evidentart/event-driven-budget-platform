@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package budget.policy.v1;
+
+option java_multiple_files = true;
+option java_package = "com.sea.budget.policy.v1";
+option java_outer_classname = "BudgetPolicyProto";
+
+service BudgetPolicyService {
+  rpc CanSpend (CanSpendRequest) returns (CanSpendResponse);
+}
+
+message CanSpendRequest {
+  string user_id = 1;
+  string period = 2;
+  string category = 3;
+  int64 amount_cents = 4;
+}
+
+message CanSpendResponse {
+  bool has_budget = 1;
+  bool allowed = 2;
+  int64 remaining_cents_after = 3;
+  string status = 4;
+  string warning = 5;
+}

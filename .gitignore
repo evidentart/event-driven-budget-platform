@@ -1,0 +1,15 @@
+# IntelliJ
+.idea/
+*.iml
+
+# Node
+node_modules/
+dist/
+build/
+
+# Logs
+*.log
+
+# Env files
+.env
+.env.*

@@ -1,0 +1,33 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: user-service-route
+              uri: http://user-service:4000
+              predicates:
+                - Path=/api/users/**
+            - id: expense-service-route
+              uri: http://expense-service:4001
+              predicates:
+                - Path=/api/expenses/**
+            - id: budget-service-route
+              uri: http://budget-service:4002
+              predicates:
+                - Path=/api/budgets/**
+            - id: ai-service-route
+              uri: http://ai-service:4003
+              predicates:
+                - Path=/api/insights/**

@@ -1,0 +1,12 @@
+export const EXPENSE_CATEGORIES = [
+  "FOOD",
+  "TRANSPORT",
+  "RENT",
+  "ENTERTAINMENT",
+  "HEALTH",
+  "UTILITIES",
+  "EDUCATION",
+  "SHOPPING",
+  "TRAVEL",
+  "OTHER",
+];

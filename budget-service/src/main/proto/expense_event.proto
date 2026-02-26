@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+// Kafka event schema for expense creation
+package expense.events;
+
+option java_multiple_files = true;
+option java_package = "expense.events";
+
+import "google/protobuf/timestamp.proto";
+
+// Lightweight category enum shared across services
+enum ExpenseCategory {
+  CATEGORY_UNSPECIFIED = 0;
+  FOOD = 1;
+  TRANSPORT = 2;
+  RENT = 3;
+  ENTERTAINMENT = 4;
+  HEALTH = 5;
+  UTILITIES = 6;
+  EDUCATION = 7;
+  SHOPPING = 8;
+  TRAVEL = 9;
+  OTHER = 10;
+}
+
+// Event published whenever an expense is created
+message ExpenseCreatedEvent {
+  string expense_id = 1;
+  string user_id = 2;
+  int64 amount_cents = 3;
+  ExpenseCategory category = 4;
+  google.protobuf.Timestamp created_at = 5;
+  string expense_period = 6; // YYYY-MM derived from expense_date
+}

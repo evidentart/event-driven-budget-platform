@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: user-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+  jpa:
+    open-in-view: false
+server:
+  port: 4000
