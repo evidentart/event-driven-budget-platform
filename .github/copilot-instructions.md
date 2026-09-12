@@ -30,6 +30,10 @@
 * Add focused tests for changed behavior and important failure cases.
 * Run relevant tests and build/validation commands after implementation.
 * Report exactly what changed and what passed or failed.
+* Keep responses concise but sufficiently detailed to explain the important reasoning, evidence, risks, and conclusions.
+* Do not narrate routine tool calls, searches, file inspection, or intermediate steps.
+* Avoid unnecessary repetition, filler, and long walkthroughs unless explicitly requested.
+* Prefer structured summaries and focused bullet points over lengthy prose.
 
 ## Git
 
