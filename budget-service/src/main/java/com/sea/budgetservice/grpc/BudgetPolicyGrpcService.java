@@ -26,23 +26,21 @@ public class BudgetPolicyGrpcService extends BudgetPolicyServiceGrpc.BudgetPolic
     @Override
     public void canSpend(CanSpendRequest request, StreamObserver<CanSpendResponse> responseObserver) {
         try {
-            UUID userId;
-            try {
-                userId = UUID.fromString(request.getUserId());
-            } catch (IllegalArgumentException e) {
+            String ownerSubject = request.getOwnerSubject();
+            if (ownerSubject == null || ownerSubject.isBlank()) {
                 responseObserver.onNext(CanSpendResponse.newBuilder()
                         .setHasBudget(false)
                         .setAllowed(true) // Option B: still allow
                         .setRemainingCentsAfter(0)
                         .setStatus("UNKNOWN")
-                        .setWarning("Invalid userId format (expected UUID).")
+                        .setWarning("Missing owner subject.")
                         .build());
                 responseObserver.onCompleted();
                 return;
             }
 
             String period = request.getPeriod();
-            Optional<Budget> budgetOpt = budgetRepository.findByUserIdAndPeriod(userId, period);
+            Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period);
 
             if (budgetOpt.isEmpty()) {
                 responseObserver.onNext(CanSpendResponse.newBuilder()
@@ -78,8 +76,8 @@ public class BudgetPolicyGrpcService extends BudgetPolicyServiceGrpc.BudgetPolic
             responseObserver.onCompleted();
 
         } catch (Exception e) {
-            log.error("Budget policy gRPC evaluation failed for userId={} period={}",
-                    request.getUserId(), request.getPeriod(), e);
+            log.error("Budget policy gRPC evaluation failed for ownerSubject={} period={}",
+                    request.getOwnerSubject(), request.getPeriod(), e);
             // Never fail the RPC in a way that breaks expense creation flow.
             responseObserver.onNext(CanSpendResponse.newBuilder()
                     .setHasBudget(false)

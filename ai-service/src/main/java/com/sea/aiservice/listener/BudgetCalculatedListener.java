@@ -22,8 +22,8 @@ public class BudgetCalculatedListener {
     public void processBudgetCalculatedEvent(BudgetCalculatedEvent event) {
         UUID expenseId = event.getExpenseId();
 
-        log.info("Received BudgetCalculatedEvent: [ExpenseId={}, UserId={}, PercentageUsed={}%%]",
-                expenseId, event.getUserId(), event.getPercentageUsed());
+        log.info("Received BudgetCalculatedEvent: [ExpenseId={}, OwnerSubject={}, PercentageUsed={}%%]",
+                expenseId, event.getOwnerSubject(), event.getPercentageUsed());
 
         if (aiInsightRepository.findByExpenseId(expenseId).isPresent()) {
             log.info("AI insight already exists for expenseId={}. Skipping.", expenseId);

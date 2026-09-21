@@ -5,7 +5,6 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 import com.sea.expenseservice.model.ExpenseType;
 
@@ -15,9 +14,6 @@ import com.sea.expenseservice.model.ExpenseType;
 @AllArgsConstructor
 @Builder
 public class ExpenseRequest {
-
-    @NotNull(message = "User ID is required")
-    private UUID userId;
 
     @NotBlank(message = "Title is required")
     @Size(max = 100, message = "Title must not exceed 100 characters")

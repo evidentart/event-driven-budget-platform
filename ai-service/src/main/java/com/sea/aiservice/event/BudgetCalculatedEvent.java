@@ -16,7 +16,7 @@ import java.util.UUID;
 public class BudgetCalculatedEvent {
 
     private UUID expenseId;
-    private UUID userId;
+    private String ownerSubject;
     private double expenseAmount;
     private ExpenseCategory expenseCategory;
     private boolean hasBudget;

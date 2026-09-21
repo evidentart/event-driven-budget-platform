@@ -32,20 +32,22 @@ public class KafkaConsumer {
         try {
             ExpenseCreatedEvent event = ExpenseCreatedEvent.parseFrom(eventBytes);
 
-            UUID userId = UUID.fromString(event.getUserId());
             UUID expenseId = UUID.fromString(event.getExpenseId());
+            String ownerSubject = event.getOwnerSubject();
+            if (ownerSubject == null || ownerSubject.isBlank()) {
+                throw new IllegalArgumentException("ExpenseCreatedEvent is missing owner subject");
+            }
 
             BigDecimal expenseAmount = centsToBigDecimal(event.getAmountCents());
             ExpenseCategory category = mapProtoCategory(event.getCategory());
             String expensePeriod = resolveExpensePeriod(event);
 
-            // BudgetService expects (expenseId, userId, period, ...).
-            budgetService.trackExpense(expenseId, userId, expensePeriod, expenseAmount, category);
+            budgetService.trackExpense(expenseId, ownerSubject, expensePeriod, expenseAmount, category);
 
             ack.acknowledge();
 
-            log.info("Tracked expense event expenseId={} userId={} amount={} category={}",
-                    expenseId, userId, expenseAmount, category);
+            log.info("Tracked expense event expenseId={} ownerSubject={} amount={} category={}",
+                    expenseId, ownerSubject, expenseAmount, category);
 
         } catch (InvalidProtocolBufferException e) {
             log.error("Failed to parse ExpenseCreatedEvent. Skipping message.", e);

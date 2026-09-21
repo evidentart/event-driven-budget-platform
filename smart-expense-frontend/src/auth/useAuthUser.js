@@ -10,7 +10,6 @@ export function useAuthUser() {
 
   return {
     me: meQuery.data,
-    dbUserId: meQuery.data?.id, // UUID from DB
     isLoading: meQuery.isLoading,
     isError: meQuery.isError,
     error: meQuery.error,

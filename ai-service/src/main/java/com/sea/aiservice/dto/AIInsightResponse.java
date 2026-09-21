@@ -17,7 +17,6 @@ import java.util.UUID;
 public class AIInsightResponse {
 
     private String id;
-    private UUID userId;
     private UUID expenseId;
     private ExpenseCategory category;
     private SeverityLevel severity;

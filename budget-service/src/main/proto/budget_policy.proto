@@ -11,7 +11,7 @@ service BudgetPolicyService {
 }
 
 message CanSpendRequest {
-  string user_id = 1;          // UUID string
+  string owner_subject = 1;    // verified Keycloak sub
   string period = 2;           // YYYY-MM
   string category = 3;         // e.g. FOOD, TRANSPORT (string avoids enum coupling)
   int64 amount_cents = 4;      // expense amount in cents

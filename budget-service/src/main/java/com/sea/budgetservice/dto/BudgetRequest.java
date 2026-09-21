@@ -3,7 +3,6 @@ package com.sea.budgetservice.dto;
 import jakarta.validation.constraints.*;
 import lombok.*;
 import java.math.BigDecimal;
-import java.util.UUID;
 
 @Getter
 @Setter
@@ -11,9 +10,6 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class BudgetRequest {
-
-    @NotNull(message = "User ID is required")
-    private UUID userId;
 
     @NotNull(message = "Monthly budget is required")
     @DecimalMin(value = "0.01", message = "Budget must be greater than zero")

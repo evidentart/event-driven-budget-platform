@@ -12,18 +12,18 @@ import java.util.UUID;
 @Repository
 public interface AIInsightRepository extends MongoRepository<AIInsight, String> {
 
-    List<AIInsight> findByUserIdOrderByCreatedAtDesc(UUID userId);
+    List<AIInsight> findByOwnerSubjectOrderByCreatedAtDesc(String ownerSubject);
 
-    List<AIInsight> findByUserIdAndExpenseCategory(UUID userId, ExpenseCategory expenseCategory);
+    List<AIInsight> findByOwnerSubjectAndExpenseCategory(String ownerSubject, ExpenseCategory expenseCategory);
 
-    Optional<AIInsight> findTopByUserIdOrderByCreatedAtDesc(UUID userId);
+    Optional<AIInsight> findTopByOwnerSubjectOrderByCreatedAtDesc(String ownerSubject);
 
     Optional<AIInsight> findByExpenseId(UUID expenseId);
 
-    Optional<AIInsight> findByUserIdAndExpenseId(UUID userId, UUID expenseId);
+    Optional<AIInsight> findByOwnerSubjectAndExpenseId(String ownerSubject, UUID expenseId);
 
     boolean existsByExpenseId(UUID expenseId);
 
-    long deleteByUserId(UUID userId);
+    long deleteByOwnerSubject(String ownerSubject);
 }
 

@@ -1,15 +1,15 @@
 import { http } from "./http";
 
-export async function listInsights(userId) {
-  const { data } = await http.get(`/api/insights/${userId}`);
+export async function listMyInsights() {
+  const { data } = await http.get("/api/insights/me");
   return data;
 }
 
-export async function getLatestInsight(userId) {
-  const { data } = await http.get(`/api/insights/${userId}/latest`);
+export async function getLatestInsight() {
+  const { data } = await http.get("/api/insights/me/latest");
   return data;
 }
 
-export async function deleteInsightByExpense(userId, expenseId) {
-  await http.delete(`/api/insights/${userId}/expense/${expenseId}`);
+export async function deleteInsightByExpense(expenseId) {
+  await http.delete(`/api/insights/me/expense/${expenseId}`);
 }

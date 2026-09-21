@@ -8,9 +8,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class ExpenseMapper {
 
-    public Expense toEntity(ExpenseRequest request) {
+    public Expense toEntity(String ownerSubject, ExpenseRequest request) {
         Expense expense = new Expense();
-        expense.setUserId(request.getUserId());
+        expense.setOwnerSubject(ownerSubject);
         expense.setTitle(request.getTitle());
         expense.setDescription(request.getDescription());
         expense.setAmount(request.getAmount());

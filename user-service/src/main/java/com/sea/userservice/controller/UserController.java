@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -45,16 +46,19 @@ public class UserController {
     // Admin/internal endpoints (by DB UUID)
 
     @GetMapping("/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserResponse> getUserProfile(@PathVariable UUID userId) {
         return ResponseEntity.ok(userService.getUserProfile(userId));
     }
 
     @GetMapping("/{userId}/exists")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Boolean> userExists(@PathVariable UUID userId) {
         return ResponseEntity.ok(userService.userExistsByDbId(userId));
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserResponse>> listUsers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {

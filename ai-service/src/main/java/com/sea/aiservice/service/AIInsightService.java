@@ -170,7 +170,7 @@ public class AIInsightService {
             warnings = mergeWithEventWarning(event, warnings);
 
             return AIInsight.builder()
-                    .userId(event.getUserId())
+                    .ownerSubject(event.getOwnerSubject())
                     .expenseId(event.getExpenseId())
                     .expenseCategory(event.getExpenseCategory())
                     .severity(determineSeverity(event))
@@ -190,7 +190,7 @@ public class AIInsightService {
     private AIInsight createDefaultInsight(BudgetCalculatedEvent event) {
         if (!event.isHasBudget()) {
             return AIInsight.builder()
-                    .userId(event.getUserId())
+                    .ownerSubject(event.getOwnerSubject())
                     .expenseId(event.getExpenseId())
                     .expenseCategory(event.getExpenseCategory())
                     .severity(SeverityLevel.LOW)
@@ -223,7 +223,7 @@ public class AIInsightService {
         }
 
         return AIInsight.builder()
-                .userId(event.getUserId())
+                .ownerSubject(event.getOwnerSubject())
                 .expenseId(event.getExpenseId())
                 .expenseCategory(event.getExpenseCategory())
                 .severity(determineSeverity(event))

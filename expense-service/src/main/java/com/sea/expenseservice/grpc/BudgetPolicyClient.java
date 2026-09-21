@@ -43,13 +43,13 @@ public class BudgetPolicyClient {
         this.stub = BudgetPolicyServiceGrpc.newBlockingStub(channel);
     }
 
-    public CanSpendResponse canSpend(String userId, String period, String category, BigDecimal amount) {
+    public CanSpendResponse canSpend(String ownerSubject, String period, String category, BigDecimal amount) {
         long cents = amount.multiply(BigDecimal.valueOf(100))
                 .setScale(0, RoundingMode.HALF_UP)
                 .longValue();
 
         CanSpendRequest req = CanSpendRequest.newBuilder()
-                .setUserId(userId)
+                .setOwnerSubject(ownerSubject)
                 .setPeriod(period)
                 .setCategory(category)
                 .setAmountCents(cents)

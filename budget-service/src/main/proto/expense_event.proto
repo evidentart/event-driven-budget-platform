@@ -26,7 +26,7 @@ enum ExpenseCategory {
 // Event published whenever an expense is created
 message ExpenseCreatedEvent {
   string expense_id = 1;
-  string user_id = 2;
+  string owner_subject = 2;       // verified Keycloak sub
   int64 amount_cents = 3;
   ExpenseCategory category = 4;
   google.protobuf.Timestamp created_at = 5;

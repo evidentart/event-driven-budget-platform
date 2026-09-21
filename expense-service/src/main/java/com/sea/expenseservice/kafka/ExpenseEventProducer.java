@@ -32,7 +32,7 @@ public class ExpenseEventProducer {
 
         ExpenseCreatedEvent event = ExpenseCreatedEvent.newBuilder()
                 .setExpenseId(expense.getId().toString())
-                .setUserId(expense.getUserId().toString())
+                .setOwnerSubject(expense.getOwnerSubject())
                 .setAmountCents(toCents(expense.getAmount()))
                 .setCategory(safeCategory(expense.getCategory() != null ? expense.getCategory().name() : null))
                 .setCreatedAt(toProtoTimestamp(createdInstant))

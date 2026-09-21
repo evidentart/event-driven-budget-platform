@@ -14,7 +14,6 @@ import java.util.UUID;
 public class BudgetResponse {
 
     private UUID id;
-    private UUID userId;
     private String period;
     private BigDecimal monthlyBudget;
     private BigDecimal spent;

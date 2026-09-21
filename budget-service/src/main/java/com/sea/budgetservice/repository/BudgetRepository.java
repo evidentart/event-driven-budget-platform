@@ -9,7 +9,9 @@ import java.util.UUID;
 
 public interface BudgetRepository extends JpaRepository<Budget, UUID> {
 
-    Optional<Budget> findByUserIdAndPeriod(UUID userId, String period);
+    Optional<Budget> findByOwnerSubjectAndPeriod(String ownerSubject, String period);
 
-    List<Budget> findAllByUserIdOrderByPeriodDesc(UUID userId);
+    List<Budget> findAllByOwnerSubjectOrderByPeriodDesc(String ownerSubject);
+
+    Optional<Budget> findByIdAndOwnerSubject(UUID id, String ownerSubject);
 }

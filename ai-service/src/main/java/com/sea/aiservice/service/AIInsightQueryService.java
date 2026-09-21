@@ -20,50 +20,49 @@ public class AIInsightQueryService {
 
     private final AIInsightRepository aiInsightRepository;
 
-    public List<AIInsightResponse> getInsightsByUser(UUID userId) {
-        List<AIInsight> insights = aiInsightRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    public List<AIInsightResponse> getInsightsByOwner(String ownerSubject) {
+        List<AIInsight> insights = aiInsightRepository.findByOwnerSubjectOrderByCreatedAtDesc(ownerSubject);
         return insights.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
-    public List<AIInsightResponse> getInsightsByUserAndCategory(UUID userId, ExpenseCategory category) {
-        List<AIInsight> insights = aiInsightRepository.findByUserIdAndExpenseCategory(userId, category);
+    public List<AIInsightResponse> getInsightsByOwnerAndCategory(String ownerSubject, ExpenseCategory category) {
+        List<AIInsight> insights = aiInsightRepository.findByOwnerSubjectAndExpenseCategory(ownerSubject, category);
         return insights.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
-    public AIInsightResponse getLatestInsight(UUID userId) {
-        AIInsight insight = aiInsightRepository.findTopByUserIdOrderByCreatedAtDesc(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("No insights found for user: " + userId));
+    public AIInsightResponse getLatestInsight(String ownerSubject) {
+        AIInsight insight = aiInsightRepository.findTopByOwnerSubjectOrderByCreatedAtDesc(ownerSubject)
+                .orElseThrow(() -> new ResourceNotFoundException("No insights found for owner"));
         return toResponse(insight);
     }
 
-    public AIInsightResponse getInsightByExpense(UUID expenseId) {
-        AIInsight insight = aiInsightRepository.findByExpenseId(expenseId)
+    public AIInsightResponse getInsightByExpense(String ownerSubject, UUID expenseId) {
+        AIInsight insight = aiInsightRepository.findByOwnerSubjectAndExpenseId(ownerSubject, expenseId)
                 .orElseThrow(() -> new ResourceNotFoundException("No insight found for expense: " + expenseId));
         return toResponse(insight);
     }
 
     // Delete one insight for a specific expense.
-    public void deleteInsightByUserAndExpense(UUID userId, UUID expenseId) {
-        AIInsight insight = aiInsightRepository.findByUserIdAndExpenseId(userId, expenseId)
+    public void deleteInsightByOwnerAndExpense(String ownerSubject, UUID expenseId) {
+        AIInsight insight = aiInsightRepository.findByOwnerSubjectAndExpenseId(ownerSubject, expenseId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "No insight found for userId=" + userId + " and expenseId=" + expenseId
+                        "No insight found for owner and expenseId=" + expenseId
                 ));
 
         aiInsightRepository.delete(insight);
-        log.info("Deleted insight id={} for userId={} expenseId={}", insight.getId(), userId, expenseId);
+        log.info("Deleted insight id={} for ownerSubject={} expenseId={}", insight.getId(), ownerSubject, expenseId);
     }
 
     // Delete all insights for a user.
-    public long deleteAllInsightsForUser(UUID userId) {
-        long deleted = aiInsightRepository.deleteByUserId(userId);
-        log.info("Deleted {} insights for userId={}", deleted, userId);
+    public long deleteAllInsightsForOwner(String ownerSubject) {
+        long deleted = aiInsightRepository.deleteByOwnerSubject(ownerSubject);
+        log.info("Deleted {} insights for ownerSubject={}", deleted, ownerSubject);
         return deleted;
     }
 
     private AIInsightResponse toResponse(AIInsight insight) {
         return AIInsightResponse.builder()
                 .id(insight.getId())
-                .userId(insight.getUserId())
                 .expenseId(insight.getExpenseId())
                 .category(insight.getExpenseCategory())
                 .severity(insight.getSeverity())

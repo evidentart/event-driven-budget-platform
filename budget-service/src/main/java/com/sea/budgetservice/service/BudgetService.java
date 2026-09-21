@@ -42,19 +42,19 @@ public class BudgetService {
     // -------------------------
 
     @Transactional
-    public BudgetResponse createBudget(BudgetRequest request) {
+    public BudgetResponse createBudget(String ownerSubject, BudgetRequest request) {
         String period = normalizePeriod(request.getPeriod());
 
-        budgetRepository.findByUserIdAndPeriod(request.getUserId(), period)
+        budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
                 .ifPresent(existing -> {
                     throw new ResponseStatusException(
                             HttpStatus.CONFLICT,
-                            "Budget already exists for userId=" + request.getUserId() + " period=" + period
+                            "Budget already exists for ownerSubject=" + ownerSubject + " period=" + period
                     );
                 });
 
         Budget budget = Budget.builder()
-                .userId(request.getUserId())
+                .ownerSubject(ownerSubject)
                 .period(period)
                 .monthlyBudget(request.getMonthlyBudget())
                 .usedBudget(BigDecimal.ZERO)
@@ -63,43 +63,43 @@ public class BudgetService {
 
         Budget saved = budgetRepository.save(budget);
 
-        log.info("Saved budget userId={} period={} monthlyBudget={} used={}",
-                saved.getUserId(), saved.getPeriod(), saved.getMonthlyBudget(), saved.getUsedBudget());
+        log.info("Saved budget ownerSubject={} period={} monthlyBudget={} used={}",
+                saved.getOwnerSubject(), saved.getPeriod(), saved.getMonthlyBudget(), saved.getUsedBudget());
 
         return toResponse(saved, List.of());
     }
 
     @Transactional(readOnly = true)
-    public BudgetResponse getCurrentBudget(UUID userId) {
+    public BudgetResponse getCurrentBudget(String ownerSubject) {
         String currentPeriod = Budget.getCurrentPeriod();
-        Budget budget = findBudgetOr404(userId, currentPeriod);
+        Budget budget = findBudgetOr404(ownerSubject, currentPeriod);
         return buildResponseWithBreakdown(budget);
     }
 
     @Transactional(readOnly = true)
-    public BudgetResponse getBudgetByUserAndPeriod(UUID userId, String period) {
-        Budget budget = findBudgetOr404(userId, period);
+    public BudgetResponse getBudgetByOwnerAndPeriod(String ownerSubject, String period) {
+        Budget budget = findBudgetOr404(ownerSubject, period);
         return buildResponseWithBreakdown(budget);
     }
 
     @Transactional(readOnly = true)
-    public List<BudgetResponse> getAllBudgetsByUser(UUID userId) {
-        return budgetRepository.findAllByUserIdOrderByPeriodDesc(userId)
+    public List<BudgetResponse> getAllBudgetsByOwner(String ownerSubject) {
+        return budgetRepository.findAllByOwnerSubjectOrderByPeriodDesc(ownerSubject)
                 .stream()
                 .map(this::buildResponseWithBreakdown)
                 .toList();
     }
 
     @Transactional
-    public BudgetResponse setCurrentBudget(UUID userId, BigDecimal monthlyBudget) {
+    public BudgetResponse setCurrentBudget(String ownerSubject, BigDecimal monthlyBudget) {
         String currentPeriod = Budget.getCurrentPeriod();
-        Budget budget = findBudgetOr404(userId, currentPeriod);
+        Budget budget = findBudgetOr404(ownerSubject, currentPeriod);
 
         budget.setMonthlyBudget(monthlyBudget);
         Budget saved = budgetRepository.save(budget);
 
-        log.info("Updated current budget userId={} period={} monthlyBudget={} used={}",
-                saved.getUserId(), saved.getPeriod(), saved.getMonthlyBudget(), saved.getUsedBudget());
+        log.info("Updated current budget ownerSubject={} period={} monthlyBudget={} used={}",
+                saved.getOwnerSubject(), saved.getPeriod(), saved.getMonthlyBudget(), saved.getUsedBudget());
 
         return buildResponseWithBreakdown(saved);
     }
@@ -108,9 +108,9 @@ public class BudgetService {
      * Delete budget safely; CategorySpending FK will not block due to cascade.
      */
     @Transactional
-    public void deleteBudget(UUID budgetId) {
+    public void deleteBudget(String ownerSubject, UUID budgetId) {
         try {
-            Budget budget = budgetRepository.findById(budgetId)
+            Budget budget = budgetRepository.findByIdAndOwnerSubject(budgetId, ownerSubject)
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatus.NOT_FOUND,
                             "Budget not found: " + budgetId
@@ -140,14 +140,14 @@ public class BudgetService {
      * If your Kafka event includes a real expense date/period, change `period` selection accordingly.
      */
     @Transactional
-    public void trackExpense(UUID expenseId, UUID userId, String expensePeriod, BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
+    public void trackExpense(UUID expenseId, String ownerSubject, String expensePeriod, BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
         // Log inputs exactly as received from KafkaConsumer.
-        log.info("trackExpense() called with expenseId={} userId={} period={} amount={} category={}",
-                expenseId, userId, expensePeriod, expenseAmount, expenseCategory);
+        log.info("trackExpense() called with expenseId={} ownerSubject={} period={} amount={} category={}",
+                expenseId, ownerSubject, expensePeriod, expenseAmount, expenseCategory);
 
         String period = normalizePeriod(expensePeriod);
 
-        Budget budget = getOrCreateBudgetForPeriod(userId, period);
+        Budget budget = getOrCreateBudgetForPeriod(ownerSubject, period);
 
         BigDecimal amount = nz(expenseAmount);
 
@@ -171,8 +171,8 @@ public class BudgetService {
 
         publishBudgetCalculatedEvent(expenseId, budget, amount, expenseCategory);
 
-        log.info("Tracked expense expenseId={} userId={} period={} amount={} category={}",
-                expenseId, userId, period, amount, expenseCategory);
+        log.info("Tracked expense expenseId={} ownerSubject={} period={} amount={} category={}",
+                expenseId, ownerSubject, period, amount, expenseCategory);
     }
 
     // -------------------------
@@ -183,11 +183,11 @@ public class BudgetService {
         return (period == null || period.isBlank()) ? Budget.getCurrentPeriod() : period;
     }
 
-    private Budget findBudgetOr404(UUID userId, String period) {
-        return budgetRepository.findByUserIdAndPeriod(userId, period)
+    private Budget findBudgetOr404(String ownerSubject, String period) {
+        return budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
-                        "No budget for userId=" + userId + " period=" + period
+                        "No budget for ownerSubject=" + ownerSubject + " period=" + period
                 ));
     }
 
@@ -195,17 +195,17 @@ public class BudgetService {
      * Kafka-safe: budget missing is not a transient failure.
      * We create a default budget row (monthlyBudget=0) to prevent infinite retries.
      *
-     * Also handles race conditions where multiple consumers try to create the same (userId, period)
+     * Also handles race conditions where multiple consumers try to create the same (ownerSubject, period)
      * if you have a unique constraint on those columns.
      */
-    private Budget getOrCreateBudgetForPeriod(UUID userId, String period) {
-        return budgetRepository.findByUserIdAndPeriod(userId, period)
+    private Budget getOrCreateBudgetForPeriod(String ownerSubject, String period) {
+        return budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
                 .orElseGet(() -> {
-                    log.warn("No budget found for userId={} period={}; auto-creating default budget (monthlyBudget=0).",
-                            userId, period);
+                    log.warn("No budget found for ownerSubject={} period={}; auto-creating default budget (monthlyBudget=0).",
+                            ownerSubject, period);
 
                     Budget toCreate = Budget.builder()
-                            .userId(userId)
+                            .ownerSubject(ownerSubject)
                             .period(period)
                             .monthlyBudget(BigDecimal.ZERO)
                             .usedBudget(BigDecimal.ZERO)
@@ -216,7 +216,7 @@ public class BudgetService {
                         return budgetRepository.save(toCreate);
                     } catch (DataIntegrityViolationException race) {
                         // Another thread/instance created it first - fetch it.
-                        return budgetRepository.findByUserIdAndPeriod(userId, period)
+                        return budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
                                 .orElseThrow(() -> race);
                     }
                 });
@@ -251,7 +251,6 @@ public class BudgetService {
 
         return BudgetResponse.builder()
                 .id(budget.getId())
-                .userId(budget.getUserId())
                 .period(budget.getPeriod())
                 .monthlyBudget(budget.getMonthlyBudget())
                 .spent(spent)
@@ -294,7 +293,7 @@ public class BudgetService {
 
         BudgetCalculatedEvent event = BudgetCalculatedEvent.builder()
                 .expenseId(expenseId)
-                .userId(budget.getUserId())
+                .ownerSubject(budget.getOwnerSubject())
                 .expenseAmount(nz(expenseAmount).doubleValue())
                 .expenseCategory(expenseCategory)
                 .hasBudget(monthlyBudget.compareTo(BigDecimal.ZERO) > 0)
@@ -310,8 +309,8 @@ public class BudgetService {
 
         rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, event);
 
-        log.info("Published BudgetCalculatedEvent expenseId={} userId={} exchange={} routingKey={}",
-                expenseId, budget.getUserId(), rabbitExchange, rabbitRoutingKey);
+        log.info("Published BudgetCalculatedEvent expenseId={} ownerSubject={} exchange={} routingKey={}",
+                expenseId, budget.getOwnerSubject(), rabbitExchange, rabbitRoutingKey);
     }
 
     private String buildBudgetWarning(BudgetStatus status, BigDecimal remainingAfter) {

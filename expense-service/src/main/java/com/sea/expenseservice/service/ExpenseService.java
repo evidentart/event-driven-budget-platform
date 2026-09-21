@@ -29,7 +29,7 @@ public class ExpenseService {
     private final ExpenseEventProducer expenseEventProducer;
 
     @Transactional
-    public ExpenseResponse createExpense(ExpenseRequest request) {
+    public ExpenseResponse createExpense(String ownerSubject, ExpenseRequest request) {
 
         String period = YearMonth.from(request.getExpenseDate()).toString();
         String category = request.getCategory().name();
@@ -38,26 +38,26 @@ public class ExpenseService {
 
         try {
             decision = budgetPolicyClient.canSpend(
-                    request.getUserId().toString(),
+                    ownerSubject,
                     period,
                     category,
                     request.getAmount()
             );
 
             if (!decision.getWarning().isBlank()) {
-                log.warn("Budget warning userId={} period={} status={} warning={}",
-                        request.getUserId(), period, decision.getStatus(), decision.getWarning());
+                log.warn("Budget warning ownerSubject={} period={} status={} warning={}",
+                        ownerSubject, period, decision.getStatus(), decision.getWarning());
             }
         } catch (Exception ex) {
             // Option B: warn-only, continue creating the expense.
             log.warn("Budget gRPC check failed (warn-only mode continues): {}", ex.getMessage(), ex);
         }
 
-        Expense expense = expenseMapper.toEntity(request);
+        Expense expense = expenseMapper.toEntity(ownerSubject, request);
         Expense saved = expenseRepository.saveAndFlush(expense);
 
-        log.info("Expense created id={} userId={} amount={} category={}",
-                saved.getId(), saved.getUserId(), saved.getAmount(), saved.getCategory());
+        log.info("Expense created id={} ownerSubject={} amount={} category={}",
+                saved.getId(), saved.getOwnerSubject(), saved.getAmount(), saved.getCategory());
 
         expenseEventProducer.sendExpenseCreated(saved);
 
@@ -93,8 +93,8 @@ public class ExpenseService {
     }
 
     @Transactional(readOnly = true)
-    public ExpenseResponse getExpenseById(UUID expenseId) {
-        Expense expense = expenseRepository.findById(expenseId)
+    public ExpenseResponse getExpenseById(String ownerSubject, UUID expenseId) {
+        Expense expense = expenseRepository.findByIdAndOwnerSubject(expenseId, ownerSubject)
                 .orElseThrow(() -> new ExpenseNotFoundException(expenseId));
 
         // For non-create endpoints, budget decision isn't calculated. Return without warning fields.
@@ -109,8 +109,8 @@ public class ExpenseService {
     }
 
     @Transactional(readOnly = true)
-    public List<ExpenseResponse> listExpensesByUser(UUID userId) {
-        return expenseRepository.findByUserId(userId)
+    public List<ExpenseResponse> listExpensesByOwner(String ownerSubject) {
+        return expenseRepository.findByOwnerSubjectOrderByExpenseDateDesc(ownerSubject)
                 .stream()
                 .map(e -> ExpenseResponse.builder()
                         .id(e.getId())
@@ -124,8 +124,8 @@ public class ExpenseService {
     }
 
     @Transactional
-    public void deleteExpense(UUID expenseId) {
-        Expense expense = expenseRepository.findById(expenseId)
+    public void deleteExpense(String ownerSubject, UUID expenseId) {
+        Expense expense = expenseRepository.findByIdAndOwnerSubject(expenseId, ownerSubject)
                 .orElseThrow(() -> new ExpenseNotFoundException(expenseId));
 
         expenseRepository.delete(expense);

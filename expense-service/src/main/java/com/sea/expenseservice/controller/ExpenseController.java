@@ -8,9 +8,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/expenses")
@@ -21,30 +22,38 @@ public class ExpenseController {
     private final ExpenseService expenseService;
 
     @PostMapping
-    public ResponseEntity<ExpenseResponse> createExpense(@Valid @RequestBody ExpenseRequest request) {
-        log.info("Creating expense for userId={}", request.getUserId());
-        ExpenseResponse response = expenseService.createExpense(request);
+    public ResponseEntity<ExpenseResponse> createExpense(
+            JwtAuthenticationToken auth,
+            @Valid @RequestBody ExpenseRequest request) {
+
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Creating expense for ownerSubject={}", ownerSubject);
+        ExpenseResponse response = expenseService.createExpense(ownerSubject, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @GetMapping("/me")
+    public ResponseEntity<List<ExpenseResponse>> listMyExpenses(JwtAuthenticationToken auth) {
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Listing expenses for ownerSubject={}", ownerSubject);
+        return ResponseEntity.ok(expenseService.listExpensesByOwner(ownerSubject));
+    }
+
     @GetMapping("/{id}")
-    public ResponseEntity<ExpenseResponse> getExpense(@PathVariable UUID id) {
+    public ResponseEntity<ExpenseResponse> getExpense(
+            JwtAuthenticationToken auth,
+            @PathVariable UUID id) {
         log.info("Fetching expense with id={}", id);
-        ExpenseResponse response = expenseService.getExpenseById(id);
+        ExpenseResponse response = expenseService.getExpenseById(auth.getToken().getSubject(), id);
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/user/{userId}")
-    public ResponseEntity<List<ExpenseResponse>> listExpensesByUser(@PathVariable UUID userId) {
-        log.info("Listing expenses for userId={}", userId);
-        List<ExpenseResponse> expenses = expenseService.listExpensesByUser(userId);
-        return ResponseEntity.ok(expenses);
-    }
-
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteExpense(@PathVariable UUID id) {
+    public ResponseEntity<Void> deleteExpense(
+            JwtAuthenticationToken auth,
+            @PathVariable UUID id) {
         log.info("Deleting expense with id={}", id);
-        expenseService.deleteExpense(id);
+        expenseService.deleteExpense(auth.getToken().getSubject(), id);
         return ResponseEntity.noContent().build();
     }
 }

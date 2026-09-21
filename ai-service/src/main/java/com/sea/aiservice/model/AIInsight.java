@@ -21,7 +21,7 @@ public class AIInsight {
     @Id
     private String id;
 
-    private UUID userId;
+    private String ownerSubject;
     private UUID expenseId;
     private ExpenseCategory expenseCategory;
     private SeverityLevel severity;

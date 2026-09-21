@@ -16,7 +16,7 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "budgets",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "period"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"owner_subject", "period"})
 )
 @Getter
 @Setter
@@ -29,8 +29,8 @@ public class Budget {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
+    @Column(name = "owner_subject", nullable = false, length = 255)
+    private String ownerSubject;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal monthlyBudget;
