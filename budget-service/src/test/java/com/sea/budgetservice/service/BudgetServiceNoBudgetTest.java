@@ -47,7 +47,7 @@ class BudgetServiceNoBudgetTest {
 
     @Test
     void missingBudgetPublishesNoBudgetWithoutCreatingSyntheticRow() {
-        when(budgetRepository.findByOwnerSubjectAndPeriod("alice", "2026-02"))
+        when(budgetRepository.findByOwnerSubjectAndPeriodForUpdate("alice", "2026-02"))
                 .thenReturn(Optional.empty());
 
         budgetService.trackExpense(UUID.randomUUID(), "alice",

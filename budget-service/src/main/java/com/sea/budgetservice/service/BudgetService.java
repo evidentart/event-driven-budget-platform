@@ -156,7 +156,7 @@ public class BudgetService {
         String period = periodResolver.periodFor(expenseTimestamp);
         log.info("trackExpense() called for period={} category={}", period, expenseCategory);
 
-        Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period);
+        Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriodForUpdate(ownerSubject, period);
         if (budgetOpt.isEmpty()) {
             publishNoBudgetEvent(expenseId, ownerSubject, amountCents, expenseCategory);
             log.info("No budget found for expense period={}; no budget row created", period);
@@ -191,6 +191,50 @@ public class BudgetService {
         publishBudgetCalculatedEvent(expenseId, budget, amountCents, expenseCategory, finalState);
 
         log.info("Tracked expense for period={} amountCents={} category={}", period, amountCents, expenseCategory);
+    }
+
+    @Transactional
+    public void reverseExpense(UUID expenseId, String ownerSubject, Instant expenseTimestamp,
+                               BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
+        long amountCents = policyEvaluator.toCents(expenseAmount, "Expense amount");
+        if (amountCents <= 0) {
+            throw new IllegalArgumentException("Expense amount must be greater than zero");
+        }
+
+        String period = periodResolver.periodFor(expenseTimestamp);
+        Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriodForUpdate(ownerSubject, period);
+        if (budgetOpt.isEmpty()) {
+            log.info("No budget found while reversing expense for period={}; no budget row changed", period);
+            return;
+        }
+
+        Budget budget = budgetOpt.get();
+        long currentUsedCents = policyEvaluator.toCents(nz(budget.getUsedBudget()), "Current spent");
+        if (currentUsedCents < amountCents) {
+            throw new IllegalStateException("Cannot reverse expense beyond the recorded budget total");
+        }
+
+        CategorySpending categorySpending = categorySpendingRepository
+                .findByBudgetIdAndCategory(budget.getId(), expenseCategory)
+                .orElseThrow(() -> new IllegalStateException("Cannot reverse expense without category spending"));
+        long currentCategoryCents = policyEvaluator.toCents(
+                nz(categorySpending.getAmountSpent()), "Category spending");
+        if (currentCategoryCents < amountCents) {
+            throw new IllegalStateException("Cannot reverse expense beyond the recorded category total");
+        }
+
+        budget.setUsedBudget(policyEvaluator.fromCents(currentUsedCents - amountCents));
+        long remainingCategoryCents = currentCategoryCents - amountCents;
+        if (remainingCategoryCents == 0) {
+            categorySpendingRepository.delete(categorySpending);
+        } else {
+            categorySpending.setAmountSpent(policyEvaluator.fromCents(remainingCategoryCents));
+            categorySpendingRepository.save(categorySpending);
+        }
+        budgetRepository.save(budget);
+
+        log.info("Reversed expense for period={} amountCents={} category={}",
+                period, amountCents, expenseCategory);
     }
 
     // -------------------------

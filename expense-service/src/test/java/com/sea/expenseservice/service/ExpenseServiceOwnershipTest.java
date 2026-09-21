@@ -2,7 +2,6 @@ package com.sea.expenseservice.service;
 
 import com.sea.expenseservice.exception.ExpenseNotFoundException;
 import com.sea.expenseservice.grpc.BudgetPolicyClient;
-import com.sea.expenseservice.kafka.ExpenseEventProducer;
 import com.sea.expenseservice.mapper.ExpenseMapper;
 import com.sea.expenseservice.model.Expense;
 import com.sea.expenseservice.repository.ExpenseRepository;
@@ -32,7 +31,7 @@ class ExpenseServiceOwnershipTest {
     private BudgetPolicyClient budgetPolicyClient;
 
     @Mock
-    private ExpenseEventProducer expenseEventProducer;
+    private ExpenseOutboxWriter expenseOutboxWriter;
 
     @InjectMocks
     private ExpenseService expenseService;

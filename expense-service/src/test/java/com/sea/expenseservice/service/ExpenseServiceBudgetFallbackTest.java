@@ -4,7 +4,6 @@ import com.sea.expenseservice.dto.ExpenseRequest;
 import com.sea.expenseservice.dto.ExpenseResponse;
 import com.sea.expenseservice.grpc.BudgetAdvisory;
 import com.sea.expenseservice.grpc.BudgetPolicyClient;
-import com.sea.expenseservice.kafka.ExpenseEventProducer;
 import com.sea.expenseservice.mapper.ExpenseMapper;
 import com.sea.expenseservice.model.Expense;
 import com.sea.expenseservice.model.ExpenseType;
@@ -27,7 +26,7 @@ class ExpenseServiceBudgetFallbackTest {
     @Mock ExpenseRepository expenseRepository;
     @Mock ExpenseMapper expenseMapper;
     @Mock BudgetPolicyClient budgetPolicyClient;
-    @Mock ExpenseEventProducer expenseEventProducer;
+    @Mock ExpenseOutboxWriter expenseOutboxWriter;
     @InjectMocks ExpenseService expenseService;
 
     @Test
@@ -56,6 +55,6 @@ class ExpenseServiceBudgetFallbackTest {
 
         assertEquals("UNAVAILABLE", response.getBudgetStatus());
         assertEquals("Budget service unavailable.", response.getBudgetWarning());
-        verify(expenseEventProducer).sendExpenseCreated(expense);
+        verify(expenseOutboxWriter).enqueueCreated(expense);
     }
 }

@@ -3,7 +3,7 @@ package com.sea.budgetservice.model;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -29,5 +29,11 @@ public class InboxEvent {
     private UUID eventId;
 
     @Column(nullable = false)
-    private LocalDateTime receivedAt;
+    private Instant receivedAt;
+
+    @Column(name = "event_type", nullable = false, length = 50)
+    private String eventType;
+
+    @Column(name = "schema_version", nullable = false)
+    private Integer schemaVersion;
 }

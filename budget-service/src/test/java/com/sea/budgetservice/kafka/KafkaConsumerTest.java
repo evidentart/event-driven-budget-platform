@@ -1,65 +1,138 @@
 package com.sea.budgetservice.kafka;
 
-import com.google.protobuf.Timestamp;
 import com.sea.budgetservice.model.ExpenseCategory;
+import com.sea.budgetservice.repository.InboxEventRepository;
 import com.sea.budgetservice.service.BudgetService;
-import expense.events.ExpenseCreatedEvent;
+import com.sea.budgetservice.service.ExpenseEventHandler;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.kafka.support.Acknowledgment;
+import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class KafkaConsumerTest {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     @Test
-    void acknowledgesMalformedEventWhenRequiredExpenseTimestampIsMissing() {
+    void forwardsCreatedEventWithExactMoneyAndTimestamp() {
+        InboxEventRepository inboxRepository = mock(InboxEventRepository.class);
         BudgetService budgetService = mock(BudgetService.class);
-        Acknowledgment acknowledgment = mock(Acknowledgment.class);
-        KafkaConsumer consumer = new KafkaConsumer(budgetService);
+        when(inboxRepository.insertIfAbsent(any(), any(), anyString(), eq(1), any())).thenReturn(1);
 
-        consumer.consumeExpenseEvent(ExpenseCreatedEvent.newBuilder()
-                .setExpenseId(UUID.randomUUID().toString())
-                .setOwnerSubject("alice")
-                .setAmountCents(100)
-                .setCategory(expense.events.ExpenseCategory.FOOD)
-                .setCreatedAt(timestamp("2026-02-10T12:00:00Z"))
-                .build().toByteArray(), acknowledgment);
+        ExpenseEventHandler handler = new ExpenseEventHandler(
+                inboxRepository,
+                budgetService,
+                Clock.fixed(Instant.parse("2026-02-10T12:00:00Z"), ZoneOffset.UTC)
+        );
+        KafkaConsumer consumer = new KafkaConsumer(new ExpenseEventParser(objectMapper), handler);
+        UUID expenseId = UUID.randomUUID();
+        Instant expenseTimestamp = Instant.parse("2026-02-10T12:00:00Z");
 
-        verify(acknowledgment).acknowledge();
+        consumer.consumeExpenseEvent(("""
+                {
+                  "eventId": "%s",
+                  "eventType": "EXPENSE_CREATED",
+                  "schemaVersion": 1,
+                  "aggregateId": "%s",
+                  "ownerSubject": "alice",
+                  "occurredAt": "2026-02-10T12:01:00Z",
+                  "payload": {
+                    "amountCents": 1234,
+                    "category": "FOOD",
+                    "expenseTimestamp": "%s"
+                  }
+                }
+                """).formatted(UUID.randomUUID(), expenseId, expenseTimestamp).getBytes());
+
+        verify(budgetService).trackExpense(
+                eq(expenseId), eq("alice"), eq(expenseTimestamp),
+                eq(new BigDecimal("12.34")), eq(ExpenseCategory.FOOD));
+    }
+
+    @Test
+    void duplicateEventDoesNotMutateBudgetAgain() {
+        InboxEventRepository inboxRepository = mock(InboxEventRepository.class);
+        BudgetService budgetService = mock(BudgetService.class);
+        when(inboxRepository.insertIfAbsent(any(), any(), anyString(), eq(1), any())).thenReturn(0);
+
+        ExpenseEventHandler handler = new ExpenseEventHandler(
+                inboxRepository,
+                budgetService,
+                Clock.systemUTC()
+        );
+        KafkaConsumer consumer = new KafkaConsumer(new ExpenseEventParser(objectMapper), handler);
+
+        consumer.consumeExpenseEvent(validEventJson().getBytes());
+
         verifyNoInteractions(budgetService);
     }
 
     @Test
-    void forwardsAbsoluteExpenseTimestampToBudgetTracking() {
+    void malformedEventIsPropagatedToKafkaErrorHandler() {
+        KafkaConsumer consumer = new KafkaConsumer(
+                new ExpenseEventParser(objectMapper),
+                mock(ExpenseEventHandler.class)
+        );
+
+        assertThrows(MalformedExpenseEventException.class,
+                () -> consumer.consumeExpenseEvent("{\"eventType\":\"EXPENSE_CREATED\"}".getBytes()));
+    }
+
+    @Test
+    void deletedEventReversesTheExactExpenseSnapshot() {
+        InboxEventRepository inboxRepository = mock(InboxEventRepository.class);
         BudgetService budgetService = mock(BudgetService.class);
-        Acknowledgment acknowledgment = mock(Acknowledgment.class);
-        KafkaConsumer consumer = new KafkaConsumer(budgetService);
+        when(inboxRepository.insertIfAbsent(any(), any(), anyString(), eq(1), any())).thenReturn(1);
+        ExpenseEventHandler handler = new ExpenseEventHandler(inboxRepository, budgetService, Clock.systemUTC());
+        KafkaConsumer consumer = new KafkaConsumer(new ExpenseEventParser(objectMapper), handler);
         UUID expenseId = UUID.randomUUID();
         Instant expenseTimestamp = Instant.parse("2026-02-10T12:00:00Z");
 
-        consumer.consumeExpenseEvent(ExpenseCreatedEvent.newBuilder()
-                .setExpenseId(expenseId.toString())
-                .setOwnerSubject("alice")
-                .setAmountCents(1234)
-                .setCategory(expense.events.ExpenseCategory.FOOD)
-                .setCreatedAt(timestamp("2026-02-10T12:01:00Z"))
-                .setExpenseTimestamp(timestamp(expenseTimestamp.toString()))
-                .build().toByteArray(), acknowledgment);
+        consumer.consumeExpenseEvent(("""
+                {
+                  "eventId": "%s",
+                  "eventType": "EXPENSE_DELETED",
+                  "schemaVersion": 1,
+                  "aggregateId": "%s",
+                  "ownerSubject": "alice",
+                  "occurredAt": "2026-02-11T12:01:00Z",
+                  "payload": {
+                    "amountCents": 1234,
+                    "category": "FOOD",
+                    "expenseTimestamp": "%s"
+                  }
+                }
+                """).formatted(UUID.randomUUID(), expenseId, expenseTimestamp).getBytes());
 
-        ArgumentCaptor<Instant> timestampCaptor = ArgumentCaptor.forClass(Instant.class);
-        verify(budgetService).trackExpense(eq(expenseId), eq("alice"), timestampCaptor.capture(),
-                eq(new java.math.BigDecimal("12.34")), eq(ExpenseCategory.FOOD));
-        assertEquals(expenseTimestamp, timestampCaptor.getValue());
-        verify(acknowledgment).acknowledge();
+        verify(budgetService).reverseExpense(
+                eq(expenseId), eq("alice"), eq(expenseTimestamp),
+                eq(new BigDecimal("12.34")), eq(ExpenseCategory.FOOD));
     }
 
-    private static Timestamp timestamp(String value) {
-        Instant instant = Instant.parse(value);
-        return Timestamp.newBuilder().setSeconds(instant.getEpochSecond()).setNanos(instant.getNano()).build();
+    private String validEventJson() {
+        return """
+                {
+                  "eventId": "%s",
+                  "eventType": "EXPENSE_CREATED",
+                  "schemaVersion": 1,
+                  "aggregateId": "%s",
+                  "ownerSubject": "alice",
+                  "occurredAt": "2026-02-10T12:01:00Z",
+                  "payload": {
+                    "amountCents": 1234,
+                    "category": "FOOD",
+                    "expenseTimestamp": "2026-02-10T12:00:00Z"
+                  }
+                }
+                """.formatted(UUID.randomUUID(), UUID.randomUUID());
     }
 }

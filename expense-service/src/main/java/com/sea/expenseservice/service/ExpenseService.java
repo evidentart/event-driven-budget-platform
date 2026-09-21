@@ -5,7 +5,6 @@ import com.sea.expenseservice.dto.ExpenseResponse;
 import com.sea.expenseservice.exception.ExpenseNotFoundException;
 import com.sea.expenseservice.grpc.BudgetAdvisory;
 import com.sea.expenseservice.grpc.BudgetPolicyClient;
-import com.sea.expenseservice.kafka.ExpenseEventProducer;
 import com.sea.expenseservice.mapper.ExpenseMapper;
 import com.sea.expenseservice.model.Expense;
 import com.sea.expenseservice.repository.ExpenseRepository;
@@ -26,7 +25,7 @@ public class ExpenseService {
     private final ExpenseRepository expenseRepository;
     private final ExpenseMapper expenseMapper;
     private final BudgetPolicyClient budgetPolicyClient;
-    private final ExpenseEventProducer expenseEventProducer;
+    private final ExpenseOutboxWriter expenseOutboxWriter;
 
     @Transactional
     public ExpenseResponse createExpense(String ownerSubject, ExpenseRequest request) {
@@ -49,8 +48,7 @@ public class ExpenseService {
         log.info("Expense created id={} ownerSubject={} amount={} category={}",
                 saved.getId(), saved.getOwnerSubject(), saved.getAmount(), saved.getCategory());
 
-        expenseEventProducer.sendExpenseCreated(saved);
-
+        expenseOutboxWriter.enqueueCreated(saved);
 
         ExpenseResponse base = expenseMapper.toResponse(saved);
 
@@ -112,6 +110,7 @@ public class ExpenseService {
         Expense expense = expenseRepository.findByIdAndOwnerSubject(expenseId, ownerSubject)
                 .orElseThrow(() -> new ExpenseNotFoundException(expenseId));
 
+        expenseOutboxWriter.enqueueDeleted(expense);
         expenseRepository.delete(expense);
         log.info("Deleted expense id={}", expenseId);
     }
