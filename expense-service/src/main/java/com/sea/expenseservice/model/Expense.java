@@ -8,7 +8,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -45,13 +45,13 @@ public class Expense {
     private ExpenseType category;
 
     @Column(name = "expense_date", nullable = false)
-    private LocalDateTime expenseDate;
+    private Instant expenseDate;
 
     @CreationTimestamp
     @Column(name = "created_date", updatable = false)
-    private LocalDateTime createdDate;
+    private Instant createdDate;
 
     @UpdateTimestamp
     @Column(name = "updated_date")
-    private LocalDateTime updatedDate;
+    private Instant updatedDate;
 }

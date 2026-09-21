@@ -103,8 +103,8 @@ export default function ExpensesPage() {
                 {expense.budgetStatus ? (
                   <Typography variant="caption" color="text.secondary">
                     Budget Status: {expense.budgetStatus}
-                    {typeof expense.remainingBudgetCentsAfter === "number"
-                      ? ` | Remaining cents after: ${expense.remainingBudgetCentsAfter}`
+                    {expense.remainingBudgetAfter != null
+                      ? ` | Remaining after: $${expense.remainingBudgetAfter}`
                       : ""}
                   </Typography>
                 ) : null}

@@ -24,7 +24,7 @@ public class ExpenseMapper {
                 .id(expense.getId())
                 .title(expense.getTitle())
                 .description(expense.getDescription())
-                .amount(expense.getAmount())
+                .amount(expense.getAmount() == null ? null : expense.getAmount().toPlainString())
                 .category(expense.getCategory())
                 .expenseDate(expense.getExpenseDate())
                 .build();

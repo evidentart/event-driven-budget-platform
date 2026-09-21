@@ -1,9 +1,9 @@
 package com.sea.expenseservice.service;
 
-import com.sea.budget.policy.v1.CanSpendResponse;
 import com.sea.expenseservice.dto.ExpenseRequest;
 import com.sea.expenseservice.dto.ExpenseResponse;
 import com.sea.expenseservice.exception.ExpenseNotFoundException;
+import com.sea.expenseservice.grpc.BudgetAdvisory;
 import com.sea.expenseservice.grpc.BudgetPolicyClient;
 import com.sea.expenseservice.kafka.ExpenseEventProducer;
 import com.sea.expenseservice.mapper.ExpenseMapper;
@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.YearMonth;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,26 +31,16 @@ public class ExpenseService {
     @Transactional
     public ExpenseResponse createExpense(String ownerSubject, ExpenseRequest request) {
 
-        String period = YearMonth.from(request.getExpenseDate()).toString();
-        String category = request.getCategory().name();
+        BudgetAdvisory advisory = budgetPolicyClient.evaluate(
+                ownerSubject,
+                request.getExpenseDate(),
+                request.getAmount()
+        );
 
-        CanSpendResponse decision = null;
-
-        try {
-            decision = budgetPolicyClient.canSpend(
-                    ownerSubject,
-                    period,
-                    category,
-                    request.getAmount()
-            );
-
-            if (!decision.getWarning().isBlank()) {
-                log.warn("Budget warning ownerSubject={} period={} status={} warning={}",
-                        ownerSubject, period, decision.getStatus(), decision.getWarning());
-            }
-        } catch (Exception ex) {
-            // Option B: warn-only, continue creating the expense.
-            log.warn("Budget gRPC check failed (warn-only mode continues): {}", ex.getMessage(), ex);
+        if (!advisory.available()) {
+            log.warn("Budget gRPC advisory unavailable; expense creation will continue");
+        } else if (!advisory.warning().isBlank()) {
+            log.warn("Budget advisory status={} warning={}", advisory.status(), advisory.warning());
         }
 
         Expense expense = expenseMapper.toEntity(ownerSubject, request);
@@ -69,15 +59,9 @@ public class ExpenseService {
         String budgetWarning;
         Long remaining;
 
-        if (decision == null) {
-            budgetStatus = "UNAVAILABLE";
-            budgetWarning = "Budget check unavailable right now.";
-            remaining = null;
-        } else {
-            budgetStatus = decision.getStatus().isBlank() ? "UNKNOWN" : decision.getStatus();
-            budgetWarning = decision.getWarning(); // can be empty
-            remaining = decision.getRemainingCentsAfter();
-        }
+        budgetStatus = advisory.status();
+        budgetWarning = advisory.warning();
+        remaining = advisory.remainingCentsAfter();
 
         return ExpenseResponse.builder()
                 .id(base.getId())
@@ -88,7 +72,7 @@ public class ExpenseService {
                 .expenseDate(base.getExpenseDate())
                 .budgetStatus(budgetStatus)
                 .budgetWarning(budgetWarning)
-                .remainingBudgetCentsAfter(remaining)
+                .remainingBudgetAfter(remaining == null ? null : BigDecimal.valueOf(remaining, 2).toPlainString())
                 .build();
     }
 
@@ -102,7 +86,7 @@ public class ExpenseService {
                 .id(expense.getId())
                 .title(expense.getTitle())
                 .description(expense.getDescription())
-                .amount(expense.getAmount())
+                .amount(expense.getAmount() == null ? null : expense.getAmount().toPlainString())
                 .category(expense.getCategory())
                 .expenseDate(expense.getExpenseDate())
                 .build();
@@ -116,7 +100,7 @@ public class ExpenseService {
                         .id(e.getId())
                         .title(e.getTitle())
                         .description(e.getDescription())
-                        .amount(e.getAmount())
+                        .amount(e.getAmount() == null ? null : e.getAmount().toPlainString())
                         .category(e.getCategory())
                         .expenseDate(e.getExpenseDate())
                         .build())

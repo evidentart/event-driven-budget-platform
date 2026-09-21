@@ -11,14 +11,16 @@ import {
   TextField,
 } from "@mui/material";
 import { EXPENSE_CATEGORIES } from "../../config/constants";
+import { normalizePositiveMoney } from "../../utils/money";
 
 function toInputDateTime(date = new Date()) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
-function toApiLocalDateTime(value) {
+function toApiInstant(value) {
   if (!value) return "";
-  return value.length === 16 ? `${value}:00` : value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 export default function ExpenseDialog({ open, onClose, onSubmit, isSubmitting }) {
@@ -41,15 +43,15 @@ export default function ExpenseDialog({ open, onClose, onSubmit, isSubmitting })
 
   const submit = () => {
     const title = values.title.trim();
-    const amountNumber = Number(values.amount);
-    const expenseDate = toApiLocalDateTime(values.expenseDate);
+    const amount = normalizePositiveMoney(values.amount);
+    const expenseDate = toApiInstant(values.expenseDate);
 
     if (!title) {
       setError("Title is required.");
       return;
     }
 
-    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+    if (!amount) {
       setError("Amount must be greater than 0.");
       return;
     }
@@ -68,7 +70,7 @@ export default function ExpenseDialog({ open, onClose, onSubmit, isSubmitting })
     onSubmit({
       title,
       description: values.description.trim(),
-      amount: amountNumber,
+      amount,
       category: values.category,
       expenseDate,
     });

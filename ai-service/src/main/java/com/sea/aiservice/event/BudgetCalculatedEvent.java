@@ -3,7 +3,8 @@ package com.sea.aiservice.event;
 import com.sea.aiservice.model.ExpenseCategory;
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -17,16 +18,16 @@ public class BudgetCalculatedEvent {
 
     private UUID expenseId;
     private String ownerSubject;
-    private double expenseAmount;
+    private long expenseAmountCents;
     private ExpenseCategory expenseCategory;
     private boolean hasBudget;
-    private double totalBudget;
-    private double usedBudget;
-    private double remainingBudget;
-    private double percentageUsed;
+    private Long totalBudgetCents;
+    private Long usedBudgetCents;
+    private Long remainingBudgetCents;
+    private BigDecimal percentageUsed;
     private String budgetStatus;
     private String budgetWarning;
     private boolean alertSent;
 
-    private LocalDateTime timestamp;
+    private Instant timestamp;
 }

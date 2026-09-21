@@ -4,6 +4,9 @@ import com.sea.budgetservice.dto.*;
 import com.sea.budgetservice.model.Budget;
 import com.sea.budgetservice.model.CategorySpending;
 import com.sea.budgetservice.model.ExpenseCategory;
+import com.sea.budgetservice.policy.AccountingPeriodResolver;
+import com.sea.budgetservice.policy.BudgetEvaluation;
+import com.sea.budgetservice.policy.BudgetPolicyEvaluator;
 import com.sea.budgetservice.repository.BudgetRepository;
 import com.sea.budgetservice.repository.CategorySpendingRepository;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,6 +33,9 @@ public class BudgetService {
     private final BudgetRepository budgetRepository;
     private final CategorySpendingRepository categorySpendingRepository;
     private final RabbitTemplate rabbitTemplate;
+    private final BudgetPolicyEvaluator policyEvaluator;
+    private final AccountingPeriodResolver periodResolver;
+    private final Clock clock;
 
     @Value("${rabbitmq.exchange.name}")
     private String rabbitExchange;
@@ -43,6 +49,7 @@ public class BudgetService {
 
     @Transactional
     public BudgetResponse createBudget(String ownerSubject, BudgetRequest request) {
+        validateBudgetLimit(request.getMonthlyBudget());
         String period = normalizePeriod(request.getPeriod());
 
         budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
@@ -71,7 +78,7 @@ public class BudgetService {
 
     @Transactional(readOnly = true)
     public BudgetResponse getCurrentBudget(String ownerSubject) {
-        String currentPeriod = Budget.getCurrentPeriod();
+        String currentPeriod = periodResolver.currentPeriod();
         Budget budget = findBudgetOr404(ownerSubject, currentPeriod);
         return buildResponseWithBreakdown(budget);
     }
@@ -92,7 +99,8 @@ public class BudgetService {
 
     @Transactional
     public BudgetResponse setCurrentBudget(String ownerSubject, BigDecimal monthlyBudget) {
-        String currentPeriod = Budget.getCurrentPeriod();
+        validateBudgetLimit(monthlyBudget);
+        String currentPeriod = periodResolver.currentPeriod();
         Budget budget = findBudgetOr404(ownerSubject, currentPeriod);
 
         budget.setMonthlyBudget(monthlyBudget);
@@ -135,21 +143,30 @@ public class BudgetService {
 
     /**
      * Called by KafkaConsumer.
-     * Updates: budget.usedBudget and category_spending for CURRENT PERIOD.
-     *
-     * If your Kafka event includes a real expense date/period, change `period` selection accordingly.
+     * Updates the budget and category spending for the accounting period containing the expense timestamp.
      */
     @Transactional
-    public void trackExpense(UUID expenseId, String ownerSubject, String expensePeriod, BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
-        // Log inputs exactly as received from KafkaConsumer.
-        log.info("trackExpense() called with expenseId={} ownerSubject={} period={} amount={} category={}",
-                expenseId, ownerSubject, expensePeriod, expenseAmount, expenseCategory);
+    public void trackExpense(UUID expenseId, String ownerSubject, Instant expenseTimestamp,
+                             BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
+        long amountCents = policyEvaluator.toCents(expenseAmount, "Expense amount");
+        if (amountCents <= 0) {
+            throw new IllegalArgumentException("Expense amount must be greater than zero");
+        }
 
-        String period = normalizePeriod(expensePeriod);
+        String period = periodResolver.periodFor(expenseTimestamp);
+        log.info("trackExpense() called for period={} category={}", period, expenseCategory);
 
-        Budget budget = getOrCreateBudgetForPeriod(ownerSubject, period);
+        Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period);
+        if (budgetOpt.isEmpty()) {
+            publishNoBudgetEvent(expenseId, ownerSubject, amountCents, expenseCategory);
+            log.info("No budget found for expense period={}; no budget row created", period);
+            return;
+        }
 
-        BigDecimal amount = nz(expenseAmount);
+        Budget budget = budgetOpt.get();
+        policyEvaluator.evaluate(budget.getMonthlyBudget(), budget.getUsedBudget(), expenseAmount);
+
+        BigDecimal amount = policyEvaluator.fromCents(amountCents);
 
         // Update used
         budget.setUsedBudget(nz(budget.getUsedBudget()).add(amount));
@@ -169,10 +186,11 @@ public class BudgetService {
         budgetRepository.save(budget);
         categorySpendingRepository.save(cs);
 
-        publishBudgetCalculatedEvent(expenseId, budget, amount, expenseCategory);
+        BudgetEvaluation finalState = policyEvaluator.evaluate(
+                budget.getMonthlyBudget(), budget.getUsedBudget(), BigDecimal.ZERO);
+        publishBudgetCalculatedEvent(expenseId, budget, amountCents, expenseCategory, finalState);
 
-        log.info("Tracked expense expenseId={} ownerSubject={} period={} amount={} category={}",
-                expenseId, ownerSubject, period, amount, expenseCategory);
+        log.info("Tracked expense for period={} amountCents={} category={}", period, amountCents, expenseCategory);
     }
 
     // -------------------------
@@ -180,7 +198,17 @@ public class BudgetService {
     // -------------------------
 
     private String normalizePeriod(String period) {
-        return (period == null || period.isBlank()) ? Budget.getCurrentPeriod() : period;
+        if (period == null || period.isBlank()) return periodResolver.currentPeriod();
+        if (!period.matches("^\\d{4}-(0[1-9]|1[0-2])$")) {
+            throw new IllegalArgumentException("Period must be in format YYYY-MM");
+        }
+        return period;
+    }
+
+    private void validateBudgetLimit(BigDecimal monthlyBudget) {
+        if (policyEvaluator.toCents(monthlyBudget, "Monthly budget") <= 0) {
+            throw new IllegalArgumentException("Monthly budget must be greater than zero");
+        }
     }
 
     private Budget findBudgetOr404(String ownerSubject, String period) {
@@ -191,75 +219,42 @@ public class BudgetService {
                 ));
     }
 
-    /**
-     * Kafka-safe: budget missing is not a transient failure.
-     * We create a default budget row (monthlyBudget=0) to prevent infinite retries.
-     *
-     * Also handles race conditions where multiple consumers try to create the same (ownerSubject, period)
-     * if you have a unique constraint on those columns.
-     */
-    private Budget getOrCreateBudgetForPeriod(String ownerSubject, String period) {
-        return budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
-                .orElseGet(() -> {
-                    log.warn("No budget found for ownerSubject={} period={}; auto-creating default budget (monthlyBudget=0).",
-                            ownerSubject, period);
-
-                    Budget toCreate = Budget.builder()
-                            .ownerSubject(ownerSubject)
-                            .period(period)
-                            .monthlyBudget(BigDecimal.ZERO)
-                            .usedBudget(BigDecimal.ZERO)
-                            .alertSent(Boolean.FALSE)
-                            .build();
-
-                    try {
-                        return budgetRepository.save(toCreate);
-                    } catch (DataIntegrityViolationException race) {
-                        // Another thread/instance created it first - fetch it.
-                        return budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
-                                .orElseThrow(() -> race);
-                    }
-                });
-    }
-
     private BudgetResponse buildResponseWithBreakdown(Budget budget) {
         List<CategorySpending> categories = categorySpendingRepository.findAllByBudgetId(budget.getId());
         return toResponse(budget, categories);
     }
 
     private BudgetResponse toResponse(Budget budget, List<CategorySpending> categories) {
-        BigDecimal total = nz(budget.getMonthlyBudget());
-        BigDecimal spent = nz(budget.getUsedBudget());
-        BigDecimal remaining = total.subtract(spent);
-
-        double pctUsed = percentage(spent, total);
-        BudgetStatus status = deriveStatus(pctUsed);
+        BudgetEvaluation evaluation = policyEvaluator.evaluate(
+                budget.getMonthlyBudget(), budget.getUsedBudget(), BigDecimal.ZERO);
+        BigDecimal total = budget.getMonthlyBudget();
+        BigDecimal spent = budget.getUsedBudget();
+        BigDecimal remaining = policyEvaluator.fromCents(evaluation.remainingCentsAfter());
 
         Map<String, CategoryDetail> breakdown = categories.stream()
                 .collect(Collectors.toMap(
                         cs -> cs.getCategory().name(),
                         cs -> CategoryDetail.builder()
-                                .amount(nz(cs.getAmountSpent()))
-                                .percentage(percentage(nz(cs.getAmountSpent()), total))
+                                .amount(nz(cs.getAmountSpent()).toPlainString())
+                                .percentage(policyEvaluator.percentageFor(
+                                        policyEvaluator.toCents(nz(cs.getAmountSpent()), "Category amount"),
+                                        evaluation.budgetLimitCents()))
                                 .build(),
                         (a, b) -> a,
                         LinkedHashMap::new
                 ));
 
-        LocalDateTime createdAt = budget.getCreatedDate();
-        LocalDateTime updatedAt = budget.getUpdatedDate();
-
         return BudgetResponse.builder()
                 .id(budget.getId())
                 .period(budget.getPeriod())
-                .monthlyBudget(budget.getMonthlyBudget())
-                .spent(spent)
-                .remaining(remaining)
-                .percentageUsed(pctUsed)
-                .status(status)
+                .monthlyBudget(total.toPlainString())
+                .spent(spent.toPlainString())
+                .remaining(remaining.toPlainString())
+                .percentageUsed(evaluation.percentageUsed())
+                .status(evaluation.status())
                 .categoryBreakdown(breakdown.isEmpty() ? null : breakdown)
-                .createdAt(createdAt)
-                .updatedAt(updatedAt)
+                .createdAt(budget.getCreatedDate())
+                .updatedAt(budget.getUpdatedDate())
                 .build();
     }
 
@@ -267,44 +262,22 @@ public class BudgetService {
         return v == null ? BigDecimal.ZERO : v;
     }
 
-    private double percentage(BigDecimal part, BigDecimal total) {
-        if (total == null || total.compareTo(BigDecimal.ZERO) <= 0) return 0.0;
-        return nz(part)
-                .divide(total, 6, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100))
-                .doubleValue();
-    }
-
-    private BudgetStatus deriveStatus(Double pct) {
-        if (pct == null || pct < 50.0) return BudgetStatus.HEALTHY;
-        if (pct < 75.0) return BudgetStatus.ON_TRACK;
-        if (pct < 90.0) return BudgetStatus.CAUTION;
-        if (pct <= 100.0) return BudgetStatus.NEAR_LIMIT;
-        return BudgetStatus.EXCEEDED;
-    }
-
-    private void publishBudgetCalculatedEvent(UUID expenseId, Budget budget, BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
-        BigDecimal monthlyBudget = nz(budget.getMonthlyBudget());
-        BigDecimal usedBudget = nz(budget.getUsedBudget());
-        BigDecimal remainingBudget = monthlyBudget.subtract(usedBudget);
-        double percentageUsed = percentage(usedBudget, monthlyBudget);
-        BudgetStatus budgetStatus = deriveStatus(percentageUsed);
-        String budgetWarning = buildBudgetWarning(budgetStatus, remainingBudget);
-
+    private void publishBudgetCalculatedEvent(UUID expenseId, Budget budget, long expenseAmountCents,
+                                              ExpenseCategory expenseCategory, BudgetEvaluation evaluation) {
         BudgetCalculatedEvent event = BudgetCalculatedEvent.builder()
                 .expenseId(expenseId)
                 .ownerSubject(budget.getOwnerSubject())
-                .expenseAmount(nz(expenseAmount).doubleValue())
+                .expenseAmountCents(expenseAmountCents)
                 .expenseCategory(expenseCategory)
-                .hasBudget(monthlyBudget.compareTo(BigDecimal.ZERO) > 0)
-                .totalBudget(monthlyBudget.doubleValue())
-                .usedBudget(usedBudget.doubleValue())
-                .remainingBudget(remainingBudget.doubleValue())
-                .percentageUsed(percentageUsed)
-                .budgetStatus(budgetStatus.name())
-                .budgetWarning(budgetWarning)
+                .hasBudget(evaluation.budgetExists())
+                .totalBudgetCents(evaluation.budgetLimitCents())
+                .usedBudgetCents(evaluation.currentSpentCents())
+                .remainingBudgetCents(evaluation.remainingCentsAfter())
+                .percentageUsed(evaluation.percentageUsed())
+                .budgetStatus(evaluation.status().name())
+                .budgetWarning(evaluation.warning())
                 .alertSent(Boolean.TRUE.equals(budget.getAlertSent()))
-                .timestamp(LocalDateTime.now())
+                .timestamp(Instant.now(clock))
                 .build();
 
         rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, event);
@@ -313,13 +286,20 @@ public class BudgetService {
                 expenseId, budget.getOwnerSubject(), rabbitExchange, rabbitRoutingKey);
     }
 
-    private String buildBudgetWarning(BudgetStatus status, BigDecimal remainingAfter) {
-        return switch (status) {
-            case HEALTHY, ON_TRACK -> "";
-            case CAUTION -> "Caution: you're over 75% of your monthly budget.";
-            case NEAR_LIMIT -> "Near limit: you're over 90% of your monthly budget.";
-            case EXCEEDED -> "Budget exceeded by " + remainingAfter.abs() + ".";
-        };
+    private void publishNoBudgetEvent(UUID expenseId, String ownerSubject, long expenseAmountCents,
+                                      ExpenseCategory expenseCategory) {
+        BudgetCalculatedEvent event = BudgetCalculatedEvent.builder()
+                .expenseId(expenseId)
+                .ownerSubject(ownerSubject)
+                .expenseAmountCents(expenseAmountCents)
+                .expenseCategory(expenseCategory)
+                .hasBudget(false)
+                .budgetStatus(BudgetStatus.NO_BUDGET.name())
+                .budgetWarning("No monthly budget is set for this period.")
+                .alertSent(false)
+                .timestamp(Instant.now(clock))
+                .build();
+        rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, event);
     }
 }
 

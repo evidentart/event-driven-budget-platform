@@ -8,7 +8,9 @@ import com.sea.aiservice.model.SeverityLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Service
@@ -59,7 +61,7 @@ public class AIInsightService {
                 }
 
                 User's Current Situation:
-                - Latest Expense: $%.2f
+                - Latest Expense: $%s
                 - Category: %s
                 - Budget Status: NO BUDGET SET for this month
 
@@ -81,7 +83,7 @@ public class AIInsightService {
 
                 Output JSON only.
                 """,
-                    event.getExpenseAmount(),
+                    formatMoney(event.getExpenseAmountCents()),
                     event.getExpenseCategory()
             );
         }
@@ -108,12 +110,12 @@ public class AIInsightService {
             }
 
             User's Current Situation:
-            - Latest Expense: $%.2f
+            - Latest Expense: $%s
             - Category: %s
-            - Total Budget: $%.2f
-            - Total Spent: $%.2f
-            - Remaining Budget: $%.2f
-            - Percentage Used: %.1f%%
+            - Total Budget: $%s
+            - Total Spent: $%s
+            - Remaining Budget: $%s
+            - Percentage Used: %s%%
             - Budget Status: %s
 
             STRICT RULES:
@@ -135,12 +137,12 @@ public class AIInsightService {
 
             Output JSON only.
             """,
-                event.getExpenseAmount(),
+                formatMoney(event.getExpenseAmountCents()),
                 event.getExpenseCategory(),
-                event.getTotalBudget(),
-                event.getUsedBudget(),
-                event.getRemainingBudget(),
-                event.getPercentageUsed(),
+                formatMoney(event.getTotalBudgetCents()),
+                formatMoney(event.getUsedBudgetCents()),
+                formatMoney(event.getRemainingBudgetCents()),
+                formatPercentage(event.getPercentageUsed(), 1),
                 resolveBudgetStatusLabel(event)
         );
     }
@@ -178,7 +180,7 @@ public class AIInsightService {
                     .spendingImprovements(defaultIfEmpty(improvements, "Track your spending regularly."))
                     .savingSuggestions(defaultIfEmpty(suggestions, "Look for small savings opportunities."))
                     .budgetWarnings(warnings)
-                    .createdAt(LocalDateTime.now())
+                    .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                     .build();
 
         } catch (Exception e) {
@@ -206,7 +208,7 @@ public class AIInsightService {
                             "Look for cheaper alternatives in your most frequent categories."
                     ))
                     .budgetWarnings(List.of())
-                    .createdAt(LocalDateTime.now())
+                    .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                     .build();
         }
 
@@ -214,11 +216,11 @@ public class AIInsightService {
         String eventWarning = safeTrim(event.getBudgetWarning());
         if (!eventWarning.isEmpty()) {
             warnings.add(eventWarning);
-        } else if (event.getRemainingBudget() < 0) {
+        } else if (event.getRemainingBudgetCents() != null && event.getRemainingBudgetCents() < 0) {
             warnings.add("Your budget has been exceeded.");
-        } else if (event.getPercentageUsed() >= 90) {
-            warnings.add("You're at " + String.format("%.0f", event.getPercentageUsed()) + "% of your budget.");
-        } else if (event.getPercentageUsed() >= 75) {
+        } else if (event.getPercentageUsed() != null && event.getPercentageUsed().compareTo(BigDecimal.valueOf(90)) >= 0) {
+            warnings.add("You're at " + formatPercentage(event.getPercentageUsed(), 0) + "% of your budget.");
+        } else if (event.getPercentageUsed() != null && event.getPercentageUsed().compareTo(BigDecimal.valueOf(75)) >= 0) {
             warnings.add("You're approaching your budget limit.");
         }
 
@@ -227,7 +229,7 @@ public class AIInsightService {
                 .expenseId(event.getExpenseId())
                 .expenseCategory(event.getExpenseCategory())
                 .severity(determineSeverity(event))
-                .budgetSummaryMessage("You have used " + String.format("%.1f", event.getPercentageUsed()) + "% of your monthly budget.")
+                .budgetSummaryMessage("You have used " + formatPercentage(event.getPercentageUsed(), 1) + "% of your monthly budget.")
                 .spendingImprovements(List.of(
                         "Review your " + event.getExpenseCategory() + " expenses regularly.",
                         "Set spending limits for different categories.",
@@ -239,7 +241,7 @@ public class AIInsightService {
                         "Set aside savings first (pay yourself first)."
                 ))
                 .budgetWarnings(warnings)
-                .createdAt(LocalDateTime.now())
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
     }
 
@@ -260,16 +262,8 @@ public class AIInsightService {
             case "HEALTHY" -> {
                 return SeverityLevel.LOW;
             }
-            default -> {
-                // Fall through to percentage-based mapping when producer doesn't set status.
-            }
+            default -> { return SeverityLevel.LOW; }
         }
-
-        double pct = event.getPercentageUsed();
-        if (pct >= 90) return SeverityLevel.CRITICAL;
-        if (pct >= 75) return SeverityLevel.HIGH;
-        if (pct >= 50) return SeverityLevel.MEDIUM;
-        return SeverityLevel.LOW;
     }
 
     private List<String> mergeWithEventWarning(BudgetCalculatedEvent event, List<String> warnings) {
@@ -292,7 +286,19 @@ public class AIInsightService {
     private String resolveBudgetStatusLabel(BudgetCalculatedEvent event) {
         String status = safeTrim(event.getBudgetStatus());
         if (!status.isEmpty()) return status;
-        return event.getRemainingBudget() < 0 ? "EXCEEDED" : "Within budget";
+        return event.isHasBudget() ? "UNKNOWN" : "NO_BUDGET";
+    }
+
+    private String formatMoney(Long cents) {
+        return cents == null ? "unavailable" : BigDecimal.valueOf(cents, 2).toPlainString();
+    }
+
+    private String formatMoney(long cents) {
+        return BigDecimal.valueOf(cents, 2).toPlainString();
+    }
+
+    private String formatPercentage(BigDecimal percentage, int scale) {
+        return percentage == null ? "unavailable" : percentage.setScale(scale, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     private String safeTrim(String value) {

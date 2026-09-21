@@ -30,5 +30,6 @@ message ExpenseCreatedEvent {
   int64 amount_cents = 3;
   ExpenseCategory category = 4;
   google.protobuf.Timestamp created_at = 5;
-  string expense_period = 6; // YYYY-MM derived from expense_date
+  reserved 6;
+  google.protobuf.Timestamp expense_timestamp = 7;
 }

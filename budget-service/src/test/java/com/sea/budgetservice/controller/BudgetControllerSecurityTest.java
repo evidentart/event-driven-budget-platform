@@ -65,7 +65,7 @@ class BudgetControllerSecurityTest {
                         .content("""
                                 {
                                   "userId": "bob",
-                                  "monthlyBudget": 500.00,
+                                  "monthlyBudget": "500.00",
                                   "period": "2026-02"
                                 }
                                 """))

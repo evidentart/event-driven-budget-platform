@@ -55,9 +55,9 @@ class ExpenseControllerSecurityTest {
                                 {
                                   "userId": "bob",
                                   "title": "Groceries",
-                                  "amount": 25.50,
+                                  "amount": "25.50",
                                   "category": "FOOD",
-                                  "expenseDate": "2026-02-18T18:30:00"
+                                  "expenseDate": "2026-02-18T18:30:00Z"
                                 }
                                 """))
                 .andExpect(status().isCreated());

@@ -12,10 +12,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.YearMonth;
-import java.time.ZoneOffset;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +21,7 @@ import java.time.ZoneOffset;
 public class ExpenseEventProducer {
 
     private final KafkaTemplate<String, byte[]> kafkaTemplate;
+    private final Clock clock;
 
     @Value("${app.kafka.topics.expense-created:expense}")
     private String expenseCreatedTopic;
@@ -36,7 +35,7 @@ public class ExpenseEventProducer {
                 .setAmountCents(toCents(expense.getAmount()))
                 .setCategory(safeCategory(expense.getCategory() != null ? expense.getCategory().name() : null))
                 .setCreatedAt(toProtoTimestamp(createdInstant))
-                .setExpensePeriod(toExpensePeriod(expense.getExpenseDate()))
+                .setExpenseTimestamp(toProtoTimestamp(expense.getExpenseDate()))
                 .build();
         // Use a stable key so event ordering is consistent per expense.
         String key = expense.getId().toString();
@@ -56,9 +55,8 @@ public class ExpenseEventProducer {
                 });
     }
 
-    private static Instant safeCreatedInstant(LocalDateTime createdDate) {
-        // Avoid NPE + keep API resilient even if createdDate is unexpectedly null
-        return createdDate != null ? createdDate.toInstant(ZoneOffset.UTC) : Instant.now();
+    private Instant safeCreatedInstant(Instant createdDate) {
+        return createdDate != null ? createdDate : Instant.now(clock);
     }
 
     private static Timestamp toProtoTimestamp(Instant instant) {
@@ -66,11 +64,6 @@ public class ExpenseEventProducer {
                 .setSeconds(instant.getEpochSecond())
                 .setNanos(instant.getNano())
                 .build();
-    }
-
-    private static String toExpensePeriod(LocalDateTime expenseDate) {
-        LocalDateTime effectiveDate = expenseDate != null ? expenseDate : LocalDateTime.now(ZoneOffset.UTC);
-        return YearMonth.from(effectiveDate).toString();
     }
 
     private static ExpenseCategory safeCategory(String name) {
@@ -84,7 +77,7 @@ public class ExpenseEventProducer {
 
     private static long toCents(BigDecimal amount) {
         if (amount == null) return 0L;
-        return amount.setScale(2, RoundingMode.HALF_UP)
+        return amount.setScale(2, RoundingMode.UNNECESSARY)
                 .movePointRight(2)
                 .longValueExact();
     }

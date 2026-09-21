@@ -2,7 +2,7 @@ package com.sea.budgetservice.dto;
 
 import lombok.*;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,12 +15,12 @@ public class BudgetResponse {
 
     private UUID id;
     private String period;
-    private BigDecimal monthlyBudget;
-    private BigDecimal spent;
-    private BigDecimal remaining;
-    private Double percentageUsed;
+    private String monthlyBudget;
+    private String spent;
+    private String remaining;
+    private BigDecimal percentageUsed;
     private BudgetStatus status;
     private Map<String, CategoryDetail> categoryBreakdown;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private Instant createdAt;
+    private Instant updatedAt;
 }
