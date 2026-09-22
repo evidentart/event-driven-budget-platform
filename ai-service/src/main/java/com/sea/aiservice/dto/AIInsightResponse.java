@@ -3,7 +3,7 @@ package com.sea.aiservice.dto;
 import com.sea.aiservice.model.ExpenseCategory;
 import com.sea.aiservice.model.SeverityLevel;
 import lombok.*;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,5 +24,5 @@ public class AIInsightResponse {
     private List<String> spendingImprovements;
     private List<String> savingSuggestions;
     private List<String> budgetWarnings;
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 }

@@ -3,8 +3,9 @@ package com.sea.aiservice.model;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,6 +24,11 @@ public class AIInsight {
 
     private String ownerSubject;
     private UUID expenseId;
+    private Integer generation;
+    private String logicalKey;
+    private InsightLifecycleStatus lifecycleStatus;
+    private UUID commandId;
+    private UUID sourceExpenseEventId;
     private ExpenseCategory expenseCategory;
     private SeverityLevel severity;
     private String budgetSummaryMessage;
@@ -31,5 +37,10 @@ public class AIInsight {
     private List<String> budgetWarnings;
 
     @CreatedDate
-    private LocalDateTime createdAt;
+    private Instant createdAt;
+
+    @LastModifiedDate
+    private Instant updatedAt;
+
+    private Instant deletedAt;
 }

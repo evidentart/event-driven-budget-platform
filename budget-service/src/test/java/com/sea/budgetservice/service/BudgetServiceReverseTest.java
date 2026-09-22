@@ -11,8 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -29,7 +27,7 @@ class BudgetServiceReverseTest {
 
     @Mock BudgetRepository budgetRepository;
     @Mock CategorySpendingRepository categorySpendingRepository;
-    @Mock RabbitTemplate rabbitTemplate;
+    @Mock AiCommandOutboxWriter aiCommandOutboxWriter;
 
     @Test
     void reversesExactCentsFromBudgetAndCategory() {
@@ -37,13 +35,11 @@ class BudgetServiceReverseTest {
         BudgetService service = new BudgetService(
                 budgetRepository,
                 categorySpendingRepository,
-                rabbitTemplate,
+                aiCommandOutboxWriter,
                 new BudgetPolicyEvaluator(),
                 new AccountingPeriodResolver(clock, ZoneOffset.UTC),
                 clock
         );
-        ReflectionTestUtils.setField(service, "rabbitExchange", "budget.exchange");
-        ReflectionTestUtils.setField(service, "rabbitRoutingKey", "budget.calculated");
 
         Budget budget = Budget.builder()
                 .id(UUID.randomUUID())
@@ -76,6 +72,7 @@ class BudgetServiceReverseTest {
         verify(categorySpendingRepository).save(spending);
         org.junit.jupiter.api.Assertions.assertEquals(new BigDecimal("12.66"), budget.getUsedBudget());
         org.junit.jupiter.api.Assertions.assertEquals(new BigDecimal("12.66"), spending.getAmountSpent());
-        verifyNoInteractions(rabbitTemplate);
+        verify(aiCommandOutboxWriter).enqueueDeletion(
+                any(), eq("alice"), any(), eq("2026-02"));
     }
 }

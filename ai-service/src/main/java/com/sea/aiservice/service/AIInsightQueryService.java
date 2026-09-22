@@ -4,6 +4,7 @@ import com.sea.aiservice.dto.AIInsightResponse;
 import com.sea.aiservice.exception.ResourceNotFoundException;
 import com.sea.aiservice.model.AIInsight;
 import com.sea.aiservice.model.ExpenseCategory;
+import com.sea.aiservice.model.InsightLifecycleStatus;
 import com.sea.aiservice.repository.AIInsightRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,53 +12,50 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class AIInsightQueryService {
 
-    private final AIInsightRepository aiInsightRepository;
+    private final AIInsightRepository repository;
+    private final AIInsightService insightService;
 
     public List<AIInsightResponse> getInsightsByOwner(String ownerSubject) {
-        List<AIInsight> insights = aiInsightRepository.findByOwnerSubjectOrderByCreatedAtDesc(ownerSubject);
-        return insights.stream().map(this::toResponse).collect(Collectors.toList());
+        return repository.findByOwnerSubjectAndLifecycleStatusOrderByCreatedAtDesc(
+                        ownerSubject, InsightLifecycleStatus.ACTIVE)
+                .stream().map(this::toResponse).toList();
     }
 
     public List<AIInsightResponse> getInsightsByOwnerAndCategory(String ownerSubject, ExpenseCategory category) {
-        List<AIInsight> insights = aiInsightRepository.findByOwnerSubjectAndExpenseCategory(ownerSubject, category);
-        return insights.stream().map(this::toResponse).collect(Collectors.toList());
+        return repository.findByOwnerSubjectAndExpenseCategoryAndLifecycleStatus(
+                        ownerSubject, category, InsightLifecycleStatus.ACTIVE)
+                .stream().map(this::toResponse).toList();
     }
 
     public AIInsightResponse getLatestInsight(String ownerSubject) {
-        AIInsight insight = aiInsightRepository.findTopByOwnerSubjectOrderByCreatedAtDesc(ownerSubject)
-                .orElseThrow(() -> new ResourceNotFoundException("No insights found for owner"));
-        return toResponse(insight);
+        return toResponse(repository.findTopByOwnerSubjectAndLifecycleStatusOrderByCreatedAtDesc(
+                        ownerSubject, InsightLifecycleStatus.ACTIVE)
+                .orElseThrow(() -> new ResourceNotFoundException("No insights found for owner")));
     }
 
     public AIInsightResponse getInsightByExpense(String ownerSubject, UUID expenseId) {
-        AIInsight insight = aiInsightRepository.findByOwnerSubjectAndExpenseId(ownerSubject, expenseId)
-                .orElseThrow(() -> new ResourceNotFoundException("No insight found for expense: " + expenseId));
-        return toResponse(insight);
+        return toResponse(repository.findByOwnerSubjectAndExpenseIdAndGenerationAndLifecycleStatus(
+                        ownerSubject, expenseId, 1, InsightLifecycleStatus.ACTIVE)
+                .orElseThrow(() -> new ResourceNotFoundException("No insight found for expense: " + expenseId)));
     }
 
-    // Delete one insight for a specific expense.
     public void deleteInsightByOwnerAndExpense(String ownerSubject, UUID expenseId) {
-        AIInsight insight = aiInsightRepository.findByOwnerSubjectAndExpenseId(ownerSubject, expenseId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "No insight found for owner and expenseId=" + expenseId
-                ));
-
-        aiInsightRepository.delete(insight);
-        log.info("Deleted insight id={} for ownerSubject={} expenseId={}", insight.getId(), ownerSubject, expenseId);
+        insightService.deleteForOwner(ownerSubject, expenseId);
     }
 
-    // Delete all insights for a user.
     public long deleteAllInsightsForOwner(String ownerSubject) {
-        long deleted = aiInsightRepository.deleteByOwnerSubject(ownerSubject);
-        log.info("Deleted {} insights for ownerSubject={}", deleted, ownerSubject);
-        return deleted;
+        long count = repository.findByOwnerSubject(ownerSubject).stream()
+                .filter(insight -> insight.getLifecycleStatus() == InsightLifecycleStatus.ACTIVE)
+                .peek(insight -> insightService.deleteForOwner(ownerSubject, insight.getExpenseId()))
+                .count();
+        log.info("Deleted {} active insights for ownerSubject={}", count, ownerSubject);
+        return count;
     }
 
     private AIInsightResponse toResponse(AIInsight insight) {
@@ -74,4 +72,3 @@ public class AIInsightQueryService {
                 .build();
     }
 }
-

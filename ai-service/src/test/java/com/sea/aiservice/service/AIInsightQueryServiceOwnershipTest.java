@@ -13,6 +13,8 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 @ExtendWith(MockitoExtension.class)
 class AIInsightQueryServiceOwnershipTest {
@@ -20,13 +22,17 @@ class AIInsightQueryServiceOwnershipTest {
     @Mock
     private AIInsightRepository repository;
 
+    @Mock
+    private AIInsightService insightService;
+
     @InjectMocks
     private AIInsightQueryService queryService;
 
     @Test
     void rejectsAnInsightOwnedByAnotherSubject() {
         UUID expenseId = UUID.randomUUID();
-        when(repository.findByOwnerSubjectAndExpenseId("bob", expenseId))
+        when(repository.findByOwnerSubjectAndExpenseIdAndGenerationAndLifecycleStatus(
+                eq("bob"), eq(expenseId), eq(1), any()))
                 .thenReturn(java.util.Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
@@ -36,12 +42,8 @@ class AIInsightQueryServiceOwnershipTest {
     @Test
     void deletesOnlyAnInsightOwnedByTheAuthenticatedSubject() {
         UUID expenseId = UUID.randomUUID();
-        when(repository.findByOwnerSubjectAndExpenseId("alice", expenseId))
-                .thenReturn(java.util.Optional.empty());
+        queryService.deleteInsightByOwnerAndExpense("alice", expenseId);
 
-        assertThrows(ResourceNotFoundException.class,
-                () -> queryService.deleteInsightByOwnerAndExpense("alice", expenseId));
-
-        verify(repository).findByOwnerSubjectAndExpenseId("alice", expenseId);
+        verify(insightService).deleteForOwner("alice", expenseId);
     }
 }

@@ -47,7 +47,8 @@ public class ExpenseEventHandler {
                     event.ownerSubject(),
                     event.payload().expenseTimestamp(),
                     amount,
-                    category
+                    category,
+                    event.eventId()
             );
         } else if (event.eventType() == ExpenseEventType.EXPENSE_DELETED) {
             budgetService.reverseExpense(
@@ -55,7 +56,8 @@ public class ExpenseEventHandler {
                     event.ownerSubject(),
                     event.payload().expenseTimestamp(),
                     amount,
-                    category
+                    category,
+                    event.eventId()
             );
         }
     }

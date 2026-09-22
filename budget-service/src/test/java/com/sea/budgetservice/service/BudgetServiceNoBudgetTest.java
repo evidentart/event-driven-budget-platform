@@ -1,6 +1,5 @@
 package com.sea.budgetservice.service;
 
-import com.sea.budgetservice.dto.BudgetCalculatedEvent;
 import com.sea.budgetservice.model.ExpenseCategory;
 import com.sea.budgetservice.policy.AccountingPeriodResolver;
 import com.sea.budgetservice.policy.BudgetPolicyEvaluator;
@@ -9,11 +8,8 @@ import com.sea.budgetservice.repository.CategorySpendingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -30,7 +26,7 @@ class BudgetServiceNoBudgetTest {
 
     @Mock BudgetRepository budgetRepository;
     @Mock CategorySpendingRepository categorySpendingRepository;
-    @Mock RabbitTemplate rabbitTemplate;
+    @Mock AiCommandOutboxWriter aiCommandOutboxWriter;
 
     private BudgetService budgetService;
 
@@ -39,10 +35,8 @@ class BudgetServiceNoBudgetTest {
         Clock clock = Clock.fixed(Instant.parse("2026-02-10T12:00:00Z"), ZoneOffset.UTC);
         AccountingPeriodResolver resolver = new AccountingPeriodResolver(clock, ZoneOffset.UTC);
         budgetService = new BudgetService(
-                budgetRepository, categorySpendingRepository, rabbitTemplate,
+                budgetRepository, categorySpendingRepository, aiCommandOutboxWriter,
                 new BudgetPolicyEvaluator(), resolver, clock);
-        ReflectionTestUtils.setField(budgetService, "rabbitExchange", "budget.exchange");
-        ReflectionTestUtils.setField(budgetService, "rabbitRoutingKey", "budget.calculated");
     }
 
     @Test
@@ -56,9 +50,9 @@ class BudgetServiceNoBudgetTest {
         verify(budgetRepository, never()).save(any());
         verify(categorySpendingRepository, never()).save(any());
 
-        ArgumentCaptor<BudgetCalculatedEvent> eventCaptor = ArgumentCaptor.forClass(BudgetCalculatedEvent.class);
-        verify(rabbitTemplate).convertAndSend(eq("budget.exchange"), eq("budget.calculated"), eventCaptor.capture());
-        assertFalse(eventCaptor.getValue().isHasBudget());
-        assertEquals("NO_BUDGET", eventCaptor.getValue().getBudgetStatus());
+        verify(aiCommandOutboxWriter).enqueueGeneration(
+                any(), eq("alice"), any(), eq("2026-02"), eq(1234L), eq(ExpenseCategory.FOOD),
+                eq(false), isNull(), isNull(), isNull(), isNull(), eq("NO_BUDGET"),
+                eq("No monthly budget is set for this period."), eq(false));
     }
 }

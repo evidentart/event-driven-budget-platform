@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -34,6 +33,7 @@ class KafkaConsumerTest {
                 Clock.fixed(Instant.parse("2026-02-10T12:00:00Z"), ZoneOffset.UTC)
         );
         KafkaConsumer consumer = new KafkaConsumer(new ExpenseEventParser(objectMapper), handler);
+        UUID eventId = UUID.randomUUID();
         UUID expenseId = UUID.randomUUID();
         Instant expenseTimestamp = Instant.parse("2026-02-10T12:00:00Z");
 
@@ -51,11 +51,11 @@ class KafkaConsumerTest {
                     "expenseTimestamp": "%s"
                   }
                 }
-                """).formatted(UUID.randomUUID(), expenseId, expenseTimestamp).getBytes());
+                """).formatted(eventId, expenseId, expenseTimestamp).getBytes());
 
         verify(budgetService).trackExpense(
                 eq(expenseId), eq("alice"), eq(expenseTimestamp),
-                eq(new BigDecimal("12.34")), eq(ExpenseCategory.FOOD));
+                eq(new BigDecimal("12.34")), eq(ExpenseCategory.FOOD), eq(eventId));
     }
 
     @Test
@@ -94,6 +94,7 @@ class KafkaConsumerTest {
         when(inboxRepository.insertIfAbsent(any(), any(), anyString(), eq(1), any())).thenReturn(1);
         ExpenseEventHandler handler = new ExpenseEventHandler(inboxRepository, budgetService, Clock.systemUTC());
         KafkaConsumer consumer = new KafkaConsumer(new ExpenseEventParser(objectMapper), handler);
+        UUID eventId = UUID.randomUUID();
         UUID expenseId = UUID.randomUUID();
         Instant expenseTimestamp = Instant.parse("2026-02-10T12:00:00Z");
 
@@ -111,11 +112,11 @@ class KafkaConsumerTest {
                     "expenseTimestamp": "%s"
                   }
                 }
-                """).formatted(UUID.randomUUID(), expenseId, expenseTimestamp).getBytes());
+                """).formatted(eventId, expenseId, expenseTimestamp).getBytes());
 
         verify(budgetService).reverseExpense(
                 eq(expenseId), eq("alice"), eq(expenseTimestamp),
-                eq(new BigDecimal("12.34")), eq(ExpenseCategory.FOOD));
+                eq(new BigDecimal("12.34")), eq(ExpenseCategory.FOOD), eq(eventId));
     }
 
     private String validEventJson() {

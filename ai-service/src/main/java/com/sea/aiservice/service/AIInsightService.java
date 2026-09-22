@@ -1,334 +1,248 @@
 package com.sea.aiservice.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sea.aiservice.event.BudgetCalculatedEvent;
+import com.sea.aiservice.command.AiCommand;
+import com.sea.aiservice.dto.GeneratedInsightResponse;
+import com.sea.aiservice.dto.InsightGenerationRequest;
+import com.sea.aiservice.exception.InvalidGeneratedInsightException;
 import com.sea.aiservice.model.AIInsight;
+import com.sea.aiservice.model.InsightLifecycleStatus;
 import com.sea.aiservice.model.SeverityLevel;
+import com.sea.aiservice.repository.AIInsightRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.stereotype.Service;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.*;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class AIInsightService {
 
-    private final GeminiClient geminiClient;
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final int GENERATION = 1;
+    private static final int MAX_TEXT_LENGTH = 2_000;
 
-    public AIInsight generateInsight(BudgetCalculatedEvent event) {
+    private final InsightGenerationClient generationClient;
+    private final AIInsightRepository repository;
+    private final MongoTemplate mongoTemplate;
+
+    public void processGenerate(AiCommand command) {
+        AIInsight existing = repository.findByOwnerSubjectAndExpenseIdAndGeneration(
+                command.getOwnerSubject(), command.getExpenseId(), GENERATION).orElse(null);
+        if (existing != null) {
+            if (existing.getLifecycleStatus() == InsightLifecycleStatus.DELETED) {
+                log.info("Ignoring stale AI generation commandId={} for deleted expenseId={}",
+                        command.getCommandId(), command.getExpenseId());
+            } else {
+                log.info("Ignoring duplicate AI generation commandId={} for expenseId={}",
+                        command.getCommandId(), command.getExpenseId());
+            }
+            return;
+        }
+
+        GeneratedInsightResponse generated = generationClient.generate(new InsightGenerationRequest(command));
+        validate(generated);
+
+        Instant now = Instant.now();
+        String logicalKey = logicalKey(command);
+        Query activeOrMissing = Query.query(new Criteria().andOperator(
+                Criteria.where("ownerSubject").is(command.getOwnerSubject()),
+                Criteria.where("expenseId").is(command.getExpenseId()),
+                Criteria.where("generation").is(GENERATION),
+                new Criteria().orOperator(
+                        Criteria.where("lifecycleStatus").ne(InsightLifecycleStatus.DELETED),
+                        Criteria.where("lifecycleStatus").exists(false)
+                )
+        ));
+        Update update = new Update()
+                .set("ownerSubject", command.getOwnerSubject())
+                .set("expenseId", command.getExpenseId())
+                .set("generation", GENERATION)
+                .set("logicalKey", logicalKey)
+                .set("lifecycleStatus", InsightLifecycleStatus.ACTIVE)
+                .set("commandId", command.getCommandId())
+                .set("sourceExpenseEventId", command.getSourceExpenseEventId())
+                .set("expenseCategory", command.getExpenseCategory())
+                .set("severity", determineSeverity(command))
+                .set("budgetSummaryMessage", generated.getBudgetSummaryMessage())
+                .set("spendingImprovements", flattenImprovements(generated))
+                .set("savingSuggestions", flattenSuggestions(generated))
+                .set("budgetWarnings", mergeWarnings(command, generated))
+                .set("updatedAt", now)
+                .setOnInsert("createdAt", now);
+
         try {
-            String prompt = createPrompt(event);
-
-            String aiText = geminiClient.generateText(prompt).orElse(null);
-            if (aiText == null) {
-                log.warn("Gemini unavailable for expenseId={}, using default insight", event.getExpenseId());
-                return createDefaultInsight(event);
-            }
-
-            return parseAIResponse(event, aiText);
-
-        } catch (Exception e) {
-            log.error("Failed to generate insight for expenseId={}: {}", event.getExpenseId(), e.getMessage(), e);
-            return createDefaultInsight(event);
+            mongoTemplate.findAndModify(
+                    activeOrMissing, update,
+                    FindAndModifyOptions.options().upsert(true).returnNew(true), AIInsight.class);
+            log.info("Saved AI insight commandId={} expenseId={}", command.getCommandId(), command.getExpenseId());
+        } catch (DuplicateKeyException duplicate) {
+            handleExpectedDuplicate(command);
         }
     }
 
-    private String createPrompt(BudgetCalculatedEvent event) {
-        if (!event.isHasBudget()) {
-            return String.format("""
-                Analyze the user's latest expense and respond with VALID JSON ONLY (no markdown, no extra text).
+    public void processDelete(AiCommand command) {
+        Instant now = Instant.now();
+        Query key = Query.query(new Criteria().andOperator(
+                Criteria.where("ownerSubject").is(command.getOwnerSubject()),
+                Criteria.where("expenseId").is(command.getExpenseId()),
+                Criteria.where("generation").is(GENERATION)
+        ));
+        Update tombstone = new Update()
+                .set("ownerSubject", command.getOwnerSubject())
+                .set("expenseId", command.getExpenseId())
+                .set("generation", GENERATION)
+                .set("logicalKey", logicalKey(command))
+                .set("lifecycleStatus", InsightLifecycleStatus.DELETED)
+                .set("commandId", command.getCommandId())
+                .set("sourceExpenseEventId", command.getSourceExpenseEventId())
+                .set("deletedAt", now)
+                .set("updatedAt", now)
+                .unset("budgetSummaryMessage")
+                .unset("spendingImprovements")
+                .unset("savingSuggestions")
+                .unset("budgetWarnings")
+                .unset("severity")
+                .unset("expenseCategory")
+                .setOnInsert("createdAt", now);
 
-                Return EXACTLY this JSON shape:
-                {
-                  "budgetSummaryMessage": "text",
-                  "spendingImprovements": [
-                    { "area": "Area name", "suggestion": "2 sentences" },
-                    { "area": "Area name", "suggestion": "2 sentences" },
-                    { "area": "Area name", "suggestion": "2 sentences" }
-                  ],
-                  "savingSuggestions": [
-                    { "method": "Saving method", "description": "2 sentences" },
-                    { "method": "Saving method", "description": "2 sentences" },
-                    { "method": "Saving method", "description": "2 sentences" }
-                  ],
-                  "budgetWarnings": []
-                }
-
-                User's Current Situation:
-                - Latest Expense: $%s
-                - Category: %s
-                - Budget Status: NO BUDGET SET for this month
-
-                STRICT RULES:
-                - budgetSummaryMessage MUST be exactly 3 sentences.
-                  * Sentence 1: acknowledge the category/expense.
-                  * Sentence 2: explain what this kind of spending typically affects (without judging).
-                  * Sentence 3: suggest setting a monthly budget to unlock deeper alerts.
-                - spendingImprovements MUST have exactly 3 items.
-                  * Each "suggestion" MUST be exactly 2 sentences.
-                  * Each item must use a DIFFERENT tactic (no repeating meal prep / compare prices / track expenses).
-                  * Keep it specific to the category.
-                - savingSuggestions MUST have exactly 3 items.
-                  * Each "description" MUST be exactly 2 sentences.
-                  * Must not overlap with spendingImprovements tactics.
-                - budgetWarnings MUST be an empty array [].
-                - Do NOT say over/under budget (because no budget exists).
-                - Do NOT invent numbers or claim trends.
-
-                Output JSON only.
-                """,
-                    formatMoney(event.getExpenseAmountCents()),
-                    event.getExpenseCategory()
-            );
-        }
-
-        return String.format("""
-            Analyze the user's latest expense and budget situation and respond with VALID JSON ONLY (no markdown, no extra text).
-
-            Return EXACTLY this JSON shape:
-            {
-              "budgetSummaryMessage": "text",
-              "spendingImprovements": [
-                { "area": "Area name", "suggestion": "2-3 sentences" },
-                { "area": "Area name", "suggestion": "2-3 sentences" },
-                { "area": "Area name", "suggestion": "2-3 sentences" }
-              ],
-              "savingSuggestions": [
-                { "method": "Saving method", "description": "2 sentences" },
-                { "method": "Saving method", "description": "2 sentences" },
-                { "method": "Saving method", "description": "2 sentences" }
-              ],
-              "budgetWarnings": [
-                "warning text"
-              ]
-            }
-
-            User's Current Situation:
-            - Latest Expense: $%s
-            - Category: %s
-            - Total Budget: $%s
-            - Total Spent: $%s
-            - Remaining Budget: $%s
-            - Percentage Used: %s%%
-            - Budget Status: %s
-
-            STRICT RULES:
-            - budgetSummaryMessage MUST be exactly 3 sentences.
-              * Mention category + percentageUsed and/or remainingBudget.
-              * Be encouraging but honest.
-              * End with one clear next action for THIS month.
-            - spendingImprovements MUST have exactly 3 items.
-              * Each "suggestion" MUST be 2-3 sentences.
-              * Each item must use a DIFFERENT tactic (no duplicates).
-              * Must be specific to the category and the budget status.
-            - savingSuggestions MUST have exactly 3 items.
-              * Each "description" MUST be exactly 2 sentences.
-              * Must not repeat any spendingImprovement tactic.
-            - budgetWarnings:
-              * If budget is healthy (remainingBudget > 0 AND percentageUsed < 75) → return [].
-              * Otherwise return 1-2 warnings, each 2 sentences (risk + what to watch next).
-            - Do NOT invent numbers beyond what is provided.
-
-            Output JSON only.
-            """,
-                formatMoney(event.getExpenseAmountCents()),
-                event.getExpenseCategory(),
-                formatMoney(event.getTotalBudgetCents()),
-                formatMoney(event.getUsedBudgetCents()),
-                formatMoney(event.getRemainingBudgetCents()),
-                formatPercentage(event.getPercentageUsed(), 1),
-                resolveBudgetStatusLabel(event)
-        );
-    }
-
-    private AIInsight parseAIResponse(BudgetCalculatedEvent event, String aiText) {
         try {
-            String cleaned = aiText
-                    .replaceAll("(?s)```json\\s*", "")
-                    .replaceAll("(?s)```\\s*", "")
-                    .trim();
-
-            JsonNode json = MAPPER.readTree(cleaned);
-
-            String budgetSummary = json.path("budgetSummaryMessage").asText("");
-
-            List<String> improvements = extractKeyValueList(
-                    json.path("spendingImprovements"), "area", "suggestion");
-
-            List<String> suggestions = extractKeyValueList(
-                    json.path("savingSuggestions"), "method", "description");
-
-            List<String> warnings = extractStringList(json.path("budgetWarnings"));
-
-            if (!event.isHasBudget()) {
-                warnings = List.of();
+            mongoTemplate.upsert(key, tombstone, AIInsight.class);
+            log.info("Recorded AI insight tombstone commandId={} expenseId={}",
+                    command.getCommandId(), command.getExpenseId());
+        } catch (DuplicateKeyException duplicate) {
+            AIInsight current = repository.findByOwnerSubjectAndExpenseIdAndGeneration(
+                    command.getOwnerSubject(), command.getExpenseId(), GENERATION).orElse(null);
+            if (current == null || current.getLifecycleStatus() == InsightLifecycleStatus.DELETED) {
+                return;
             }
-            warnings = mergeWithEventWarning(event, warnings);
-
-            return AIInsight.builder()
-                    .ownerSubject(event.getOwnerSubject())
-                    .expenseId(event.getExpenseId())
-                    .expenseCategory(event.getExpenseCategory())
-                    .severity(determineSeverity(event))
-                    .budgetSummaryMessage(budgetSummary.isBlank() ? "Spending analyzed." : budgetSummary)
-                    .spendingImprovements(defaultIfEmpty(improvements, "Track your spending regularly."))
-                    .savingSuggestions(defaultIfEmpty(suggestions, "Look for small savings opportunities."))
-                    .budgetWarnings(warnings)
-                    .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Failed to parse AI JSON for expenseId={}: {}", event.getExpenseId(), e.getMessage());
-            return createDefaultInsight(event);
+            throw duplicate;
         }
     }
 
-    private AIInsight createDefaultInsight(BudgetCalculatedEvent event) {
-        if (!event.isHasBudget()) {
-            return AIInsight.builder()
-                    .ownerSubject(event.getOwnerSubject())
-                    .expenseId(event.getExpenseId())
-                    .expenseCategory(event.getExpenseCategory())
-                    .severity(SeverityLevel.LOW)
-                    .budgetSummaryMessage("You logged an expense. Set a monthly budget to unlock deeper recommendations and alerts.")
-                    .spendingImprovements(List.of(
-                            "Review your " + event.getExpenseCategory() + " spending weekly.",
-                            "Group expenses into categories to see where money goes.",
-                            "Set a simple monthly budget target to stay on track."
-                    ))
-                    .savingSuggestions(List.of(
-                            "Try a 24-hour rule before non-essential purchases.",
-                            "Set an automatic weekly transfer to savings.",
-                            "Look for cheaper alternatives in your most frequent categories."
-                    ))
-                    .budgetWarnings(List.of())
-                    .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                    .build();
-        }
+    public void deleteForOwner(String ownerSubject, UUID expenseId) {
+        AiCommand command = new AiCommand();
+        command.setCommandId(UUID.randomUUID());
+        command.setCommandType(com.sea.aiservice.command.AiCommandType.DELETE_BUDGET_INSIGHT);
+        command.setSchemaVersion(1);
+        command.setOwnerSubject(ownerSubject);
+        command.setExpenseId(expenseId);
+        command.setGeneration(GENERATION);
+        command.setSourceExpenseEventId(UUID.randomUUID());
+        command.setRequestedAt(Instant.now());
+        processDelete(command);
+    }
 
+    private void handleExpectedDuplicate(AiCommand command) {
+        AIInsight current = repository.findByOwnerSubjectAndExpenseIdAndGeneration(
+                command.getOwnerSubject(), command.getExpenseId(), GENERATION).orElse(null);
+        if (current == null) {
+            throw new IllegalStateException("AI insight duplicate-key race could not be re-read");
+        }
+        if (current.getLifecycleStatus() == InsightLifecycleStatus.ACTIVE) {
+            log.info("Duplicate AI generation already persisted for expenseId={}", command.getExpenseId());
+            return;
+        }
+        if (current.getLifecycleStatus() == InsightLifecycleStatus.DELETED) {
+            log.info("Stale AI generation blocked by tombstone for expenseId={}", command.getExpenseId());
+            return;
+        }
+        throw new IllegalStateException("AI insight has unknown lifecycle state");
+    }
+
+    private void validate(GeneratedInsightResponse response) {
+        if (response == null || blank(response.getBudgetSummaryMessage())) {
+            throw new InvalidGeneratedInsightException("Gemini response is missing budget summary");
+        }
+        if (response.getSpendingImprovements() == null || response.getSpendingImprovements().size() != 3) {
+            throw new InvalidGeneratedInsightException("Gemini response must contain exactly three improvements");
+        }
+        if (response.getSavingSuggestions() == null || response.getSavingSuggestions().size() != 3) {
+            throw new InvalidGeneratedInsightException("Gemini response must contain exactly three saving suggestions");
+        }
+        validateText(response.getBudgetSummaryMessage(), "budget summary");
+        response.getSpendingImprovements().forEach(item -> {
+            if (item == null || blank(item.getArea()) || blank(item.getSuggestion())) {
+                throw new InvalidGeneratedInsightException("Gemini improvement is incomplete");
+            }
+            validateText(item.getArea(), "improvement area");
+            validateText(item.getSuggestion(), "improvement suggestion");
+        });
+        response.getSavingSuggestions().forEach(item -> {
+            if (item == null || blank(item.getMethod()) || blank(item.getDescription())) {
+                throw new InvalidGeneratedInsightException("Gemini saving suggestion is incomplete");
+            }
+            validateText(item.getMethod(), "saving method");
+            validateText(item.getDescription(), "saving description");
+        });
+        if (response.getBudgetWarnings() == null || response.getBudgetWarnings().size() > 2) {
+            throw new InvalidGeneratedInsightException("Gemini response contains too many warnings");
+        }
+        response.getBudgetWarnings().forEach(warning -> {
+            if (blank(warning)) throw new InvalidGeneratedInsightException("Gemini warning is blank");
+            validateText(warning, "budget warning");
+        });
+    }
+
+    private void validateText(String value, String field) {
+        if (value.length() > MAX_TEXT_LENGTH) {
+            throw new InvalidGeneratedInsightException("Gemini " + field + " is too long");
+        }
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private List<String> flattenImprovements(GeneratedInsightResponse response) {
+        return response.getSpendingImprovements().stream()
+                .map(item -> item.getArea().trim() + ": " + item.getSuggestion().trim())
+                .toList();
+    }
+
+    private List<String> flattenSuggestions(GeneratedInsightResponse response) {
+        return response.getSavingSuggestions().stream()
+                .map(item -> item.getMethod().trim() + ": " + item.getDescription().trim())
+                .toList();
+    }
+
+    private List<String> mergeWarnings(AiCommand command, GeneratedInsightResponse response) {
+        if (!Boolean.TRUE.equals(command.getHasBudget())) return List.of();
         List<String> warnings = new ArrayList<>();
-        String eventWarning = safeTrim(event.getBudgetWarning());
-        if (!eventWarning.isEmpty()) {
-            warnings.add(eventWarning);
-        } else if (event.getRemainingBudgetCents() != null && event.getRemainingBudgetCents() < 0) {
-            warnings.add("Your budget has been exceeded.");
-        } else if (event.getPercentageUsed() != null && event.getPercentageUsed().compareTo(BigDecimal.valueOf(90)) >= 0) {
-            warnings.add("You're at " + formatPercentage(event.getPercentageUsed(), 0) + "% of your budget.");
-        } else if (event.getPercentageUsed() != null && event.getPercentageUsed().compareTo(BigDecimal.valueOf(75)) >= 0) {
-            warnings.add("You're approaching your budget limit.");
+        if (command.getBudgetWarning() != null && !command.getBudgetWarning().isBlank()) {
+            warnings.add(command.getBudgetWarning().trim());
         }
-
-        return AIInsight.builder()
-                .ownerSubject(event.getOwnerSubject())
-                .expenseId(event.getExpenseId())
-                .expenseCategory(event.getExpenseCategory())
-                .severity(determineSeverity(event))
-                .budgetSummaryMessage("You have used " + formatPercentage(event.getPercentageUsed(), 1) + "% of your monthly budget.")
-                .spendingImprovements(List.of(
-                        "Review your " + event.getExpenseCategory() + " expenses regularly.",
-                        "Set spending limits for different categories.",
-                        "Track daily expenses to stay aware of your spending."
-                ))
-                .savingSuggestions(List.of(
-                        "Compare prices before making purchases.",
-                        "Use budgeting apps to monitor spending patterns.",
-                        "Set aside savings first (pay yourself first)."
-                ))
-                .budgetWarnings(warnings)
-                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                .build();
-    }
-
-    private SeverityLevel determineSeverity(BudgetCalculatedEvent event) {
-        if (!event.isHasBudget()) return SeverityLevel.LOW;
-
-        String budgetStatus = safeTrim(event.getBudgetStatus()).toUpperCase(Locale.ROOT);
-        switch (budgetStatus) {
-            case "EXCEEDED", "NEAR_LIMIT" -> {
-                return SeverityLevel.CRITICAL;
-            }
-            case "CAUTION" -> {
-                return SeverityLevel.HIGH;
-            }
-            case "ON_TRACK" -> {
-                return SeverityLevel.MEDIUM;
-            }
-            case "HEALTHY" -> {
-                return SeverityLevel.LOW;
-            }
-            default -> { return SeverityLevel.LOW; }
+        if (response.getBudgetWarnings() != null) {
+            response.getBudgetWarnings().stream()
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .filter(value -> warnings.stream().noneMatch(existing -> existing.equalsIgnoreCase(value)))
+                    .forEach(warnings::add);
         }
+        return warnings;
     }
 
-    private List<String> mergeWithEventWarning(BudgetCalculatedEvent event, List<String> warnings) {
-        if (!event.isHasBudget()) return List.of();
-
-        String eventWarning = safeTrim(event.getBudgetWarning());
-        if (eventWarning.isEmpty()) return warnings;
-
-        List<String> merged = new ArrayList<>();
-        merged.add(eventWarning);
-        if (warnings != null) {
-            warnings.stream()
-                    .filter(w -> !safeTrim(w).isEmpty())
-                    .filter(w -> !eventWarning.equalsIgnoreCase(safeTrim(w)))
-                    .forEach(merged::add);
-        }
-        return merged;
+    private SeverityLevel determineSeverity(AiCommand command) {
+        if (!Boolean.TRUE.equals(command.getHasBudget())) return SeverityLevel.LOW;
+        String status = command.getBudgetStatus() == null ? "" : command.getBudgetStatus().toUpperCase();
+        return switch (status) {
+            case "EXCEEDED", "NEAR_LIMIT" -> SeverityLevel.CRITICAL;
+            case "CAUTION" -> SeverityLevel.HIGH;
+            case "ON_TRACK" -> SeverityLevel.MEDIUM;
+            default -> SeverityLevel.LOW;
+        };
     }
 
-    private String resolveBudgetStatusLabel(BudgetCalculatedEvent event) {
-        String status = safeTrim(event.getBudgetStatus());
-        if (!status.isEmpty()) return status;
-        return event.isHasBudget() ? "UNKNOWN" : "NO_BUDGET";
-    }
-
-    private String formatMoney(Long cents) {
-        return cents == null ? "unavailable" : BigDecimal.valueOf(cents, 2).toPlainString();
-    }
-
-    private String formatMoney(long cents) {
-        return BigDecimal.valueOf(cents, 2).toPlainString();
-    }
-
-    private String formatPercentage(BigDecimal percentage, int scale) {
-        return percentage == null ? "unavailable" : percentage.setScale(scale, java.math.RoundingMode.HALF_UP).toPlainString();
-    }
-
-    private String safeTrim(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private List<String> extractKeyValueList(JsonNode arrayNode, String key1, String key2) {
-        List<String> list = new ArrayList<>();
-        if (arrayNode != null && arrayNode.isArray()) {
-            arrayNode.forEach(item -> {
-                String k = item.path(key1).asText("");
-                String v = item.path(key2).asText("");
-                if (!k.isEmpty() && !v.isEmpty()) list.add(k + ": " + v);
-            });
-        }
-        return list;
-    }
-
-    private List<String> extractStringList(JsonNode arrayNode) {
-        List<String> list = new ArrayList<>();
-        if (arrayNode != null && arrayNode.isArray()) {
-            arrayNode.forEach(item -> {
-                String text = item.asText("");
-                if (!text.isEmpty()) list.add(text);
-            });
-        }
-        return list;
-    }
-
-    private List<String> defaultIfEmpty(List<String> list, String defaultMessage) {
-        return (list == null || list.isEmpty()) ? Collections.singletonList(defaultMessage) : list;
+    private String logicalKey(AiCommand command) {
+        return command.getOwnerSubject() + ":" + command.getExpenseId() + ":" + GENERATION;
     }
 }

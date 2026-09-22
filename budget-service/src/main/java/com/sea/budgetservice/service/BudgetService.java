@@ -13,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,16 +31,10 @@ public class BudgetService {
 
     private final BudgetRepository budgetRepository;
     private final CategorySpendingRepository categorySpendingRepository;
-    private final RabbitTemplate rabbitTemplate;
+    private final AiCommandOutboxWriter aiCommandOutboxWriter;
     private final BudgetPolicyEvaluator policyEvaluator;
     private final AccountingPeriodResolver periodResolver;
     private final Clock clock;
-
-    @Value("${rabbitmq.exchange.name}")
-    private String rabbitExchange;
-
-    @Value("${rabbitmq.routing.key}")
-    private String rabbitRoutingKey;
 
     // -------------------------
     // REST-used methods
@@ -148,6 +141,13 @@ public class BudgetService {
     @Transactional
     public void trackExpense(UUID expenseId, String ownerSubject, Instant expenseTimestamp,
                              BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
+        trackExpense(expenseId, ownerSubject, expenseTimestamp, expenseAmount, expenseCategory, UUID.randomUUID());
+    }
+
+    @Transactional
+    public void trackExpense(UUID expenseId, String ownerSubject, Instant expenseTimestamp,
+                             BigDecimal expenseAmount, ExpenseCategory expenseCategory,
+                             UUID sourceExpenseEventId) {
         long amountCents = policyEvaluator.toCents(expenseAmount, "Expense amount");
         if (amountCents <= 0) {
             throw new IllegalArgumentException("Expense amount must be greater than zero");
@@ -158,7 +158,10 @@ public class BudgetService {
 
         Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriodForUpdate(ownerSubject, period);
         if (budgetOpt.isEmpty()) {
-            publishNoBudgetEvent(expenseId, ownerSubject, amountCents, expenseCategory);
+            aiCommandOutboxWriter.enqueueGeneration(
+                    expenseId, ownerSubject, sourceExpenseEventId, period, amountCents, expenseCategory,
+                    false, null, null, null, null, BudgetStatus.NO_BUDGET.name(),
+                    "No monthly budget is set for this period.", false);
             log.info("No budget found for expense period={}; no budget row created", period);
             return;
         }
@@ -188,7 +191,11 @@ public class BudgetService {
 
         BudgetEvaluation finalState = policyEvaluator.evaluate(
                 budget.getMonthlyBudget(), budget.getUsedBudget(), BigDecimal.ZERO);
-        publishBudgetCalculatedEvent(expenseId, budget, amountCents, expenseCategory, finalState);
+        aiCommandOutboxWriter.enqueueGeneration(
+                expenseId, budget.getOwnerSubject(), sourceExpenseEventId, budget.getPeriod(), amountCents,
+                expenseCategory, finalState.budgetExists(), finalState.budgetLimitCents(),
+                finalState.currentSpentCents(), finalState.remainingCentsAfter(), finalState.percentageUsed(),
+                finalState.status().name(), finalState.warning(), Boolean.TRUE.equals(budget.getAlertSent()));
 
         log.info("Tracked expense for period={} amountCents={} category={}", period, amountCents, expenseCategory);
     }
@@ -196,6 +203,13 @@ public class BudgetService {
     @Transactional
     public void reverseExpense(UUID expenseId, String ownerSubject, Instant expenseTimestamp,
                                BigDecimal expenseAmount, ExpenseCategory expenseCategory) {
+        reverseExpense(expenseId, ownerSubject, expenseTimestamp, expenseAmount, expenseCategory, UUID.randomUUID());
+    }
+
+    @Transactional
+    public void reverseExpense(UUID expenseId, String ownerSubject, Instant expenseTimestamp,
+                               BigDecimal expenseAmount, ExpenseCategory expenseCategory,
+                               UUID sourceExpenseEventId) {
         long amountCents = policyEvaluator.toCents(expenseAmount, "Expense amount");
         if (amountCents <= 0) {
             throw new IllegalArgumentException("Expense amount must be greater than zero");
@@ -204,6 +218,7 @@ public class BudgetService {
         String period = periodResolver.periodFor(expenseTimestamp);
         Optional<Budget> budgetOpt = budgetRepository.findByOwnerSubjectAndPeriodForUpdate(ownerSubject, period);
         if (budgetOpt.isEmpty()) {
+            aiCommandOutboxWriter.enqueueDeletion(expenseId, ownerSubject, sourceExpenseEventId, period);
             log.info("No budget found while reversing expense for period={}; no budget row changed", period);
             return;
         }
@@ -232,6 +247,8 @@ public class BudgetService {
             categorySpendingRepository.save(categorySpending);
         }
         budgetRepository.save(budget);
+
+        aiCommandOutboxWriter.enqueueDeletion(expenseId, ownerSubject, sourceExpenseEventId, period);
 
         log.info("Reversed expense for period={} amountCents={} category={}",
                 period, amountCents, expenseCategory);
@@ -306,44 +323,5 @@ public class BudgetService {
         return v == null ? BigDecimal.ZERO : v;
     }
 
-    private void publishBudgetCalculatedEvent(UUID expenseId, Budget budget, long expenseAmountCents,
-                                              ExpenseCategory expenseCategory, BudgetEvaluation evaluation) {
-        BudgetCalculatedEvent event = BudgetCalculatedEvent.builder()
-                .expenseId(expenseId)
-                .ownerSubject(budget.getOwnerSubject())
-                .expenseAmountCents(expenseAmountCents)
-                .expenseCategory(expenseCategory)
-                .hasBudget(evaluation.budgetExists())
-                .totalBudgetCents(evaluation.budgetLimitCents())
-                .usedBudgetCents(evaluation.currentSpentCents())
-                .remainingBudgetCents(evaluation.remainingCentsAfter())
-                .percentageUsed(evaluation.percentageUsed())
-                .budgetStatus(evaluation.status().name())
-                .budgetWarning(evaluation.warning())
-                .alertSent(Boolean.TRUE.equals(budget.getAlertSent()))
-                .timestamp(Instant.now(clock))
-                .build();
-
-        rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, event);
-
-        log.info("Published BudgetCalculatedEvent expenseId={} ownerSubject={} exchange={} routingKey={}",
-                expenseId, budget.getOwnerSubject(), rabbitExchange, rabbitRoutingKey);
-    }
-
-    private void publishNoBudgetEvent(UUID expenseId, String ownerSubject, long expenseAmountCents,
-                                      ExpenseCategory expenseCategory) {
-        BudgetCalculatedEvent event = BudgetCalculatedEvent.builder()
-                .expenseId(expenseId)
-                .ownerSubject(ownerSubject)
-                .expenseAmountCents(expenseAmountCents)
-                .expenseCategory(expenseCategory)
-                .hasBudget(false)
-                .budgetStatus(BudgetStatus.NO_BUDGET.name())
-                .budgetWarning("No monthly budget is set for this period.")
-                .alertSent(false)
-                .timestamp(Instant.now(clock))
-                .build();
-        rabbitTemplate.convertAndSend(rabbitExchange, rabbitRoutingKey, event);
-    }
 }
 

@@ -8,7 +8,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
@@ -28,7 +27,7 @@ class BudgetServiceOwnershipTest {
     private CategorySpendingRepository categorySpendingRepository;
 
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private AiCommandOutboxWriter aiCommandOutboxWriter;
 
     @InjectMocks
     private BudgetService budgetService;

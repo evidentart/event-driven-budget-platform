@@ -22,14 +22,6 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", ex.getMessage()));
     }
 
-    @ExceptionHandler(GeminiApiException.class)
-    public ResponseEntity<Map<String, String>> handleGeminiApiException(GeminiApiException ex) {
-        log.error("Gemini API error: {}", ex.getMessage());
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(Map.of("error", "AI service temporarily unavailable. Please try again later."));
-    }
-
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleGeneralException(Exception ex) {
         log.error("Unhandled exception", ex);
