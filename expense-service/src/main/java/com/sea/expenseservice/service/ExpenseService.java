@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -50,28 +49,8 @@ public class ExpenseService {
 
         expenseOutboxWriter.enqueueCreated(saved);
 
-        ExpenseResponse base = expenseMapper.toResponse(saved);
-
-        // ---- Option B response enrichment ----
-        String budgetStatus;
-        String budgetWarning;
-        Long remaining;
-
-        budgetStatus = advisory.status();
-        budgetWarning = advisory.warning();
-        remaining = advisory.remainingCentsAfter();
-
-        return ExpenseResponse.builder()
-                .id(base.getId())
-                .title(base.getTitle())
-                .description(base.getDescription())
-                .amount(base.getAmount())
-                .category(base.getCategory())
-                .expenseDate(base.getExpenseDate())
-                .budgetStatus(budgetStatus)
-                .budgetWarning(budgetWarning)
-                .remainingBudgetAfter(remaining == null ? null : BigDecimal.valueOf(remaining, 2).toPlainString())
-                .build();
+        return expenseMapper.toResponse(
+                saved, advisory.status(), advisory.warning(), advisory.remainingCentsAfter());
     }
 
     @Transactional(readOnly = true)
@@ -80,28 +59,14 @@ public class ExpenseService {
                 .orElseThrow(() -> new ExpenseNotFoundException(expenseId));
 
         // For non-create endpoints, budget decision isn't calculated. Return without warning fields.
-        return ExpenseResponse.builder()
-                .id(expense.getId())
-                .title(expense.getTitle())
-                .description(expense.getDescription())
-                .amount(expense.getAmount() == null ? null : expense.getAmount().toPlainString())
-                .category(expense.getCategory())
-                .expenseDate(expense.getExpenseDate())
-                .build();
+        return expenseMapper.toResponse(expense);
     }
 
     @Transactional(readOnly = true)
     public List<ExpenseResponse> listExpensesByOwner(String ownerSubject) {
         return expenseRepository.findByOwnerSubjectOrderByExpenseDateDesc(ownerSubject)
                 .stream()
-                .map(e -> ExpenseResponse.builder()
-                        .id(e.getId())
-                        .title(e.getTitle())
-                        .description(e.getDescription())
-                        .amount(e.getAmount() == null ? null : e.getAmount().toPlainString())
-                        .category(e.getCategory())
-                        .expenseDate(e.getExpenseDate())
-                        .build())
+                .map(expenseMapper::toResponse)
                 .toList();
     }
 

@@ -15,6 +15,8 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.mockito.Mockito.when;
 
 @WebMvcTest(UserController.class)
 @Import(com.sea.userservice.config.ResourceServerSecurityConfig.class)
@@ -43,5 +45,33 @@ class UserAdminSecurityTest {
                         .with(SecurityMockMvcRequestPostProcessors.jwt()
                                 .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void rejectsMalformedUserIdsWithConsistentErrorShape() throws Exception {
+        mockMvc.perform(get("/api/users/not-a-uuid")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.path").value("/api/users/not-a-uuid"));
+    }
+
+    @Test
+    void doesNotExposeInternalIdentifiersForMissingUsers() throws Exception {
+        UUID userId = UUID.randomUUID();
+        when(userService.getUserProfile(userId))
+                .thenThrow(new com.sea.userservice.exception.UserNotFoundException(
+                        "User not found for keycloakId=internal-subject"));
+
+        mockMvc.perform(get("/api/users/{userId}", userId)
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("USER_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("User was not found."));
     }
 }

@@ -1,6 +1,8 @@
 package com.sea.budgetservice.service;
 
 import com.sea.budgetservice.dto.*;
+import com.sea.budgetservice.exception.DuplicateBudgetException;
+import com.sea.budgetservice.exception.ResourceNotFoundException;
 import com.sea.budgetservice.model.Budget;
 import com.sea.budgetservice.model.CategorySpending;
 import com.sea.budgetservice.model.ExpenseCategory;
@@ -12,14 +14,10 @@ import com.sea.budgetservice.repository.CategorySpendingRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
-import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -34,7 +32,6 @@ public class BudgetService {
     private final AiCommandOutboxWriter aiCommandOutboxWriter;
     private final BudgetPolicyEvaluator policyEvaluator;
     private final AccountingPeriodResolver periodResolver;
-    private final Clock clock;
 
     // -------------------------
     // REST-used methods
@@ -47,10 +44,7 @@ public class BudgetService {
 
         budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
                 .ifPresent(existing -> {
-                    throw new ResponseStatusException(
-                            HttpStatus.CONFLICT,
-                            "Budget already exists for ownerSubject=" + ownerSubject + " period=" + period
-                    );
+                    throw new DuplicateBudgetException("A budget already exists for this period.");
                 });
 
         Budget budget = Budget.builder()
@@ -112,21 +106,15 @@ public class BudgetService {
     public void deleteBudget(String ownerSubject, UUID budgetId) {
         try {
             Budget budget = budgetRepository.findByIdAndOwnerSubject(budgetId, ownerSubject)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.NOT_FOUND,
-                            "Budget not found: " + budgetId
-                    ));
+                    .orElseThrow(() -> new ResourceNotFoundException("Budget was not found."));
 
             budgetRepository.delete(budget); // relies on Budget@OneToMany cascade/orphanRemoval
             budgetRepository.flush();        // force FK check within this tx
 
             log.info("Deleted budgetId={}", budgetId);
-        } catch (DataIntegrityViolationException e) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Cannot delete budget because it is still referenced by other records.",
-                    e
-            );
+        } catch (DataIntegrityViolationException ignored) {
+            throw new DuplicateBudgetException(
+                    "Cannot delete the budget because it is still referenced by other records.");
         }
     }
 
@@ -274,10 +262,7 @@ public class BudgetService {
 
     private Budget findBudgetOr404(String ownerSubject, String period) {
         return budgetRepository.findByOwnerSubjectAndPeriod(ownerSubject, period)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "No budget for ownerSubject=" + ownerSubject + " period=" + period
-                ));
+                .orElseThrow(() -> new ResourceNotFoundException("No budget exists for this period."));
     }
 
     private BudgetResponse buildResponseWithBreakdown(Budget budget) {

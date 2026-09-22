@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import java.net.URI;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/budgets")
+@Validated
 @RequiredArgsConstructor
 @Slf4j
 public class BudgetController {
@@ -88,4 +90,3 @@ public class BudgetController {
     }
 
 }
-

@@ -36,7 +36,7 @@ class BudgetServiceNoBudgetTest {
         AccountingPeriodResolver resolver = new AccountingPeriodResolver(clock, ZoneOffset.UTC);
         budgetService = new BudgetService(
                 budgetRepository, categorySpendingRepository, aiCommandOutboxWriter,
-                new BudgetPolicyEvaluator(), resolver, clock);
+                new BudgetPolicyEvaluator(), resolver);
     }
 
     @Test

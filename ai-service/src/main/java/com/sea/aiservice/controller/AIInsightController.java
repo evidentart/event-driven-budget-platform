@@ -44,7 +44,7 @@ public class AIInsightController {
         return ResponseEntity.ok(aiInsightQueryService.getLatestInsight(ownerSubject));
     }
 
-    @GetMapping("/expense/{expenseId}")
+    @GetMapping("/me/expense/{expenseId}")
     public ResponseEntity<AIInsightResponse> getInsightByExpense(
             JwtAuthenticationToken auth,
             @PathVariable UUID expenseId) {

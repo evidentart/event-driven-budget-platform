@@ -39,17 +39,20 @@ class ExpenseServiceBudgetFallbackTest {
                 .expenseDate(expenseDate)
                 .build();
         Expense expense = new Expense();
-        ExpenseResponse base = ExpenseResponse.builder()
+        ExpenseResponse responseWithAdvisory = ExpenseResponse.builder()
                 .amount("12.34")
                 .expenseDate(expenseDate)
                 .category(ExpenseType.FOOD)
+                .budgetStatus("UNAVAILABLE")
+                .budgetWarning("Budget service unavailable.")
                 .build();
 
         when(budgetPolicyClient.evaluate("alice", expenseDate, new BigDecimal("12.34")))
                 .thenReturn(BudgetAdvisory.unavailable("Budget service unavailable."));
         when(expenseMapper.toEntity("alice", request)).thenReturn(expense);
         when(expenseRepository.saveAndFlush(expense)).thenReturn(expense);
-        when(expenseMapper.toResponse(expense)).thenReturn(base);
+        when(expenseMapper.toResponse(expense, "UNAVAILABLE", "Budget service unavailable.", null))
+                .thenReturn(responseWithAdvisory);
 
         ExpenseResponse response = expenseService.createExpense("alice", request);
 

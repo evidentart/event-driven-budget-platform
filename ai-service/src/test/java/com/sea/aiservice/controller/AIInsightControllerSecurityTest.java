@@ -53,11 +53,27 @@ class AIInsightControllerSecurityTest {
         var expenseId = java.util.UUID.randomUUID();
         when(queryService.getInsightByExpense("alice", expenseId)).thenReturn(null);
 
-        mockMvc.perform(get("/api/insights/expense/{expenseId}", expenseId)
+        mockMvc.perform(get("/api/insights/me/expense/{expenseId}", expenseId)
                         .with(SecurityMockMvcRequestPostProcessors.jwt()
                                 .jwt(jwt -> jwt.subject("alice"))))
                 .andExpect(status().isOk());
 
         verify(queryService).getInsightByExpense("alice", expenseId);
+    }
+
+    @Test
+    void oldUnscopedExpenseInsightRouteIsRemoved() throws Exception {
+        mockMvc.perform(get("/api/insights/expense/{expenseId}", java.util.UUID.randomUUID())
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice"))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void invalidCategoryIsReportedAsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/insights/me/category/not-a-category")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice"))))
+                .andExpect(status().isBadRequest());
     }
 }

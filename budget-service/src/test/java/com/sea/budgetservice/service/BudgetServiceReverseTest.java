@@ -37,8 +37,7 @@ class BudgetServiceReverseTest {
                 categorySpendingRepository,
                 aiCommandOutboxWriter,
                 new BudgetPolicyEvaluator(),
-                new AccountingPeriodResolver(clock, ZoneOffset.UTC),
-                clock
+                new AccountingPeriodResolver(clock, ZoneOffset.UTC)
         );
 
         Budget budget = Budget.builder()

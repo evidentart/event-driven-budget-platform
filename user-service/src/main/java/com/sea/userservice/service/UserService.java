@@ -85,11 +85,6 @@ public class UserService {
         return userRepository.existsById(userId);
     }
 
-    @Transactional(readOnly = true)
-    public boolean userExistsByKeycloakId(String keycloakId) {
-        return userRepository.existsByKeycloakId(keycloakId);
-    }
-
     private UserResponse provisionFromToken(JwtAuthenticationToken auth) {
         String keycloakId = auth.getToken().getSubject();
         String email = auth.getToken().getClaimAsString("email");

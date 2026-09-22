@@ -1,17 +1,20 @@
-package com.sea.budgetservice.exception;
+package com.sea.expenseservice.exception;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
 import java.time.Instant;
 
 @Getter
-@Setter
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
 public class ApiError {
-    private Instant timestamp;
     private int status;
     private String error;
     private String message;
+    private Instant timestamp;
     private String path;
 }

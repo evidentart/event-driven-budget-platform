@@ -6,10 +6,11 @@ import com.sea.expenseservice.service.ExpenseService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import java.net.URI;
 import java.util.UUID;
 import java.util.List;
 
@@ -29,7 +30,12 @@ public class ExpenseController {
         String ownerSubject = auth.getToken().getSubject();
         log.info("Creating expense for ownerSubject={}", ownerSubject);
         ExpenseResponse response = expenseService.createExpense(ownerSubject, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(response.getId())
+                .toUri();
+        return ResponseEntity.created(location).body(response);
     }
 
     @GetMapping("/me")

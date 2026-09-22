@@ -21,6 +21,8 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 @WebMvcTest(ExpenseController.class)
 @Import(com.sea.expenseservice.config.ResourceServerSecurityConfig.class)
@@ -47,7 +49,7 @@ class ExpenseControllerSecurityTest {
         when(expenseService.createExpense(eq("alice"), any()))
                 .thenReturn(ExpenseResponse.builder().id(expenseId).build());
 
-        mockMvc.perform(post("/api/expenses")
+                mockMvc.perform(post("/api/expenses")
                         .with(SecurityMockMvcRequestPostProcessors.jwt()
                                 .jwt(jwt -> jwt.subject("alice")))
                         .contentType(APPLICATION_JSON)
@@ -60,8 +62,24 @@ class ExpenseControllerSecurityTest {
                                   "expenseDate": "2026-02-18T18:30:00Z"
                                 }
                                 """))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "http://localhost/api/expenses/" + expenseId));
 
         verify(expenseService).createExpense(eq("alice"), any());
+    }
+
+    @Test
+    void returnsBadRequestForValidationFailuresWithConsistentErrorShape() throws Exception {
+        mockMvc.perform(post("/api/expenses")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice")))
+                        .contentType(APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").exists())
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.path").value("/api/expenses"));
     }
 }
