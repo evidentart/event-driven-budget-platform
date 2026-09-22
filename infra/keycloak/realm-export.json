@@ -1,0 +1,44 @@
+{
+  "realm": "budget-portal",
+  "enabled": true,
+  "displayName": "Budget Portal (Development)",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "budget-portal-client",
+      "name": "Budget Portal Frontend (Development)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "dev-user",
+      "enabled": true,
+      "email": "dev-user@example.local",
+      "emailVerified": true,
+      "firstName": "Development",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-only-keycloak-user-password",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

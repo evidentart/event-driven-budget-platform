@@ -10,6 +10,7 @@ import io.grpc.StatusRuntimeException;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +28,7 @@ public class BudgetPolicyClient {
 
     private final long deadlineMs;
 
+    @Autowired
     public BudgetPolicyClient(
             @Value("${budget.service.address:budget-service}") String address,
             @Value("${budget.service.grpc.port:9001}") int port,

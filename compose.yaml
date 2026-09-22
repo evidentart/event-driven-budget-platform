@@ -1,0 +1,220 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smart_expense}
+      POSTGRES_USER: ${POSTGRES_USER:-smart_expense}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-only-postgres-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  mongo:
+    image: mongo:8.0
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  kafka:
+    image: apache/kafka:4.0.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka-init:
+    image: apache/kafka:4.0.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092
+        --create --if-not-exists --topic expense --partitions 1 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092
+        --create --if-not-exists --topic expense.DLT --partitions 1 --replication-factor 1
+
+  rabbitmq:
+    image: rabbitmq:4.0-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-dev-rabbit}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-dev-only-rabbit-password}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.5
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-only-keycloak-admin-password}
+      KC_HTTP_PORT: 8080
+      KC_HTTP_MANAGEMENT_PORT: 9000
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: http://localhost:8181
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    ports:
+      - "8181:8080"
+  user-service:
+    build:
+      context: ./user-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-smart_expense}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-smart_expense}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-dev-only-postgres-password}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SQL_INIT_MODE: never
+      KEYCLOAK_ISSUER_URI: http://localhost:8181/realms/budget-portal
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  expense-service:
+    build:
+      context: ./expense-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-smart_expense}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-smart_expense}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-dev-only-postgres-password}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SQL_INIT_MODE: never
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KEYCLOAK_ISSUER_URI: http://localhost:8181/realms/budget-portal
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+      BUDGET_SERVICE_ADDRESS: budget-service
+      BUDGET_SERVICE_GRPC_PORT: 9001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      budget-service:
+        condition: service_started
+      keycloak:
+        condition: service_started
+
+  budget-service:
+    build:
+      context: ./budget-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-smart_expense}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-smart_expense}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-dev-only-postgres-password}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_SQL_INIT_MODE: never
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-dev-rabbit}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-dev-only-rabbit-password}
+      KEYCLOAK_ISSUER_URI: http://localhost:8181/realms/budget-portal
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  ai-service:
+    build:
+      context: ./ai-service
+    environment:
+      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/smart_expense_ai
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER:-dev-rabbit}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-dev-only-rabbit-password}
+      KEYCLOAK_ISSUER_URI: http://localhost:8181/realms/budget-portal
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+    environment:
+      KEYCLOAK_ISSUER_URI: http://localhost:8181/realms/budget-portal
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+    depends_on:
+      user-service:
+        condition: service_started
+      expense-service:
+        condition: service_started
+      budget-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./smart-expense-frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/}
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://localhost:8181}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-budget-portal}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-budget-portal-client}
+    depends_on:
+      api-gateway:
+        condition: service_started
+    ports:
+      - "5173:80"
+
+volumes:
+  postgres_data:
+  mongo_data:
+  kafka_data:
+  rabbitmq_data:
+  keycloak_data:

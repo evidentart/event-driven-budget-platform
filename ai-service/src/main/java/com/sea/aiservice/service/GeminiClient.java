@@ -9,6 +9,7 @@ import com.sea.aiservice.exception.InvalidGeneratedInsightException;
 import com.sea.aiservice.exception.NonRetryableAiCommandException;
 import com.sea.aiservice.exception.RetryableAiProcessingException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -32,8 +33,8 @@ public class GeminiClient implements InsightGenerationClient {
     private final String model;
     private final String baseUrl;
 
+    @Autowired
     public GeminiClient(
-            RestClient.Builder builder,
             ObjectMapper mapper,
             @Value("${GEMINI_API_KEY:}") String apiKey,
             @Value("${GEMINI_MODEL:gemini-2.5-flash}") String model,
@@ -50,7 +51,7 @@ public class GeminiClient implements InsightGenerationClient {
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(Duration.ofSeconds(timeoutSeconds));
-        this.restClient = builder.requestFactory(requestFactory).build();
+        this.restClient = RestClient.builder().requestFactory(requestFactory).build();
     }
 
     GeminiClient(RestClient restClient, ObjectMapper mapper, String apiKey, String model, String baseUrl) {

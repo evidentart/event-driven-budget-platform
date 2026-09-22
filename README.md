@@ -85,24 +85,29 @@ expense-service -> Kafka -> budget-service -> RabbitMQ -> ai-service
 }
 ```
 
-## Run with Docker 
+## Run with Docker
 
 ### Prerequisites
 
-- Docker
+- Docker Desktop with Compose
 
-> This repo uses **service-level Dockerization** (no Docker Compose/Kubernetes included). Start each container individually and ensure networking/environment variables are configured so services can reach their dependencies.
-
-### Typical Workflow (per service)
-
-From each service directory:
+Copy `.env.example` to `.env`, review the development-only credentials, and start the complete local stack from the repository root:
 
 ```bash
-# Build image
-docker build -t <service-name>:latest .
+docker compose up -d --build
+docker compose ps
+```
 
-# Run container (example: user-service)
-docker run --name user-service -p 4000:4000 <service-name>:latest
+Open the frontend at `http://localhost:5173`, Keycloak at `http://localhost:8181`, the gateway at `http://localhost:8080`, and RabbitMQ management at `http://localhost:15672`.
+
+The default development user is `dev-user` with password `dev-only-keycloak-user-password`. These credentials are local-development fixtures only.
+
+Useful commands:
+
+```bash
+docker compose logs -f api-gateway
+docker compose build
+docker compose down
 ```
 
 ### Containerized Components
@@ -118,16 +123,19 @@ docker run --name user-service -p 4000:4000 <service-name>:latest
 - PostgreSQL
 - MongoDB
 
-## Environment Variables (Typical)
+The backend services use internal Compose DNS names for PostgreSQL, MongoDB, Kafka, RabbitMQ, and Keycloak. Only the frontend, gateway, Keycloak, and RabbitMQ management UI are exposed to the host.
+
+## Environment Variables
 
 - `SPRING_DATASOURCE_URL`
 - `SPRING_DATASOURCE_USERNAME`
 - `SPRING_DATASOURCE_PASSWORD`
 - `SPRING_KAFKA_BOOTSTRAP_SERVERS`
 - `SPRING_DATA_MONGODB_URI`
+- `KEYCLOAK_ISSUER_URI`
+- `KEYCLOAK_JWK_SET_URI`
 - `RABBITMQ_QUEUE_NAME`
 - `RABBITMQ_EXCHANGE_NAME`
-- `RABBITMQ_ROUTING_KEY`
 - `GEMINI_API_KEY` 
 
 ## License
