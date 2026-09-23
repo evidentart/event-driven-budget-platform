@@ -13,7 +13,7 @@ This project demonstrates:
 - Event-driven design using Kafka and RabbitMQ
 - Mixed communication patterns (REST + gRPC + async messaging)
 - Polyglot persistence (PostgreSQL + MongoDB)
-- Resilience patterns and graceful fallbacks
+- Resilience patterns with bounded retries, dead-letter recovery, and graceful service degradation
 - Dockerized microservices and infrastructure components for consistent local/dev environments
 
 ## System Flow
@@ -27,6 +27,8 @@ This project demonstrates:
 7. `budget-service` consumes the Kafka event, updates budget data in PostgreSQL, and publishes a budget event to RabbitMQ.
 8. `ai-service` consumes the RabbitMQ event, generates insights, and stores them in MongoDB.
 9. Frontend fetches budget and provides AI insight APIs for user-facing warnings and recommendations.
+
+AI generation is asynchronous. Retryable Gemini or processing failures follow the existing bounded retry and dead-letter path. Missing Gemini credentials produce an explicit non-retryable generation failure; the AI service can still start without the key, and no fake or fallback insight is generated.
 
 ## Architecture
 ![Architecture Diagram](architecture_diagram.png)
@@ -54,7 +56,7 @@ expense-service -> Kafka -> budget-service -> RabbitMQ -> ai-service
 - Sync communication: REST, gRPC
 - Async communication: Kafka, RabbitMQ
 - Databases: PostgreSQL (user/expense/budget), MongoDB (AI insights)
-- AI integration: Gemini API (with fallback behavior)
+- AI integration: Gemini API with asynchronous generation, bounded retry/dead-letter handling, and explicit failure when credentials are unavailable
 - Containerization: Docker (service-level containerization)
 
 ## Services
@@ -76,14 +78,15 @@ expense-service -> Kafka -> budget-service -> RabbitMQ -> ai-service
 
 ```json
 {
-  "userId": "11111111-1111-1111-1111-111111111111",
   "title": "Grocery Run",
   "description": "Weekly groceries",
   "amount": "86.45",
   "category": "FOOD",
-  "expenseDate": "2026-02-18T18:30:00"
+  "expenseDate": "2026-02-18T18:30:00Z"
 }
 ```
+
+Expense ownership is derived from the authenticated JWT `sub`; clients do not supply a `userId`.
 
 ## Run with Docker
 
