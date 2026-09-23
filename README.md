@@ -8,63 +8,9 @@ The project demonstrates how to make financial data consistent across service bo
 
 ## Architecture
 
-The Mermaid diagram below is the architecture source of truth for the completed system. Docker Compose, GitHub Actions, and Actuator are cross-cutting concerns and are intentionally shown outside the runtime message path.
+The diagram below shows the completed system architecture. Docker Compose, GitHub Actions, and Actuator are cross-cutting concerns and are intentionally shown outside the runtime message path.
 
-```mermaid
-flowchart LR
-    browser["User / browser"] --> ui["React + Vite frontend"]
-    ui -->|"Authorization Code + PKCE"| keycloak["Keycloak<br/>identity provider / JWT issuer"]
-    keycloak -->|"JWT for API calls"| ui
-    ui -->|"Bearer JWT"| gateway["Spring Cloud Gateway<br/>JWT validation + routing"]
-
-    subgraph services["Spring Boot services"]
-        user["User Service<br/>profile + admin functions"]
-        expense["Expense Service<br/>CRUD + outbox"]
-        budget["Budget Service<br/>policy + consumers"]
-        ai["AI Service<br/>async command consumer"]
-    end
-
-    gateway -->|"/api/users/**"| user
-    gateway -->|"/api/expenses/**"| expense
-    gateway -->|"/api/budgets/**"| budget
-    gateway -->|"/api/insights/**"| ai
-
-    serviceAuth["Each backend validates JWT<br/>and enforces authorization / ownership"]
-    serviceAuth -.-> user
-    serviceAuth -.-> expense
-    serviceAuth -.-> budget
-    serviceAuth -.-> ai
-
-    expense -->|"gRPC / Protobuf budget advisory<br/>before expense commit; integer cents"| budget
-
-    subgraph postgres["Shared PostgreSQL deployment in local Compose<br/>service-owned tables and state"]
-        userDb["User Service<br/>user / profile state"]
-        expenseDb["Expense Service<br/>expenses + expense outbox"]
-        budgetDb["Budget Service<br/>budgets + Kafka inbox + AI-command outbox"]
-    end
-
-    user --> userDb
-    expense -->|"expense + outbox atomically"| expenseDb
-    budget --> budgetDb
-
-    expenseDb --> expensePublisher["Expense outbox publisher"]
-    expensePublisher -->|"at-least-once event"| kafka["Kafka"]
-    kafka --> budgetInbox["Budget Service Kafka inbox<br/>idempotent budget mutation"]
-    budgetInbox --> budgetDb
-
-    budgetDb --> aiPublisher["AI-command outbox publisher"]
-    aiPublisher -->|"durable command"| rabbit["RabbitMQ"]
-    rabbit -->|"asynchronous command"| ai
-    ai -.->|"retryable failures"| recovery["Retries + confirmed DLQ recovery"]
-    recovery -.-> rabbit
-
-    ai -->|"request / response"| gemini["Gemini API<br/>missing key = explicit non-retryable failure<br/>service starts without key; no fake fallback"]
-    ai --> mongo["MongoDB<br/>insight lifecycle, idempotency, tombstones"]
-
-    ui -.->|"after async processing: retrieve insight"| gateway
-
-    ops["Cross-cutting:<br/>Docker Compose • GitHub Actions • Actuator health/readiness"]
-```
+![Smart Budget Platform Architecture](smart-budget-platform-architecture.png)
 
 ## End-to-End Data Flow
 
