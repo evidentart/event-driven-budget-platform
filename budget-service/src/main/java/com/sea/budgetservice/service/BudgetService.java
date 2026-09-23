@@ -57,8 +57,7 @@ public class BudgetService {
 
         Budget saved = budgetRepository.save(budget);
 
-        log.info("Saved budget ownerSubject={} period={} monthlyBudget={} used={}",
-                saved.getOwnerSubject(), saved.getPeriod(), saved.getMonthlyBudget(), saved.getUsedBudget());
+        log.info("Saved budget period={}", saved.getPeriod());
 
         return toResponse(saved, List.of());
     }
@@ -93,8 +92,7 @@ public class BudgetService {
         budget.setMonthlyBudget(monthlyBudget);
         Budget saved = budgetRepository.save(budget);
 
-        log.info("Updated current budget ownerSubject={} period={} monthlyBudget={} used={}",
-                saved.getOwnerSubject(), saved.getPeriod(), saved.getMonthlyBudget(), saved.getUsedBudget());
+        log.info("Updated current budget period={}", saved.getPeriod());
 
         return buildResponseWithBreakdown(saved);
     }
@@ -185,7 +183,7 @@ public class BudgetService {
                 finalState.currentSpentCents(), finalState.remainingCentsAfter(), finalState.percentageUsed(),
                 finalState.status().name(), finalState.warning(), Boolean.TRUE.equals(budget.getAlertSent()));
 
-        log.info("Tracked expense for period={} amountCents={} category={}", period, amountCents, expenseCategory);
+        log.info("Tracked expense for period={} category={}", period, expenseCategory);
     }
 
     @Transactional
@@ -238,8 +236,7 @@ public class BudgetService {
 
         aiCommandOutboxWriter.enqueueDeletion(expenseId, ownerSubject, sourceExpenseEventId, period);
 
-        log.info("Reversed expense for period={} amountCents={} category={}",
-                period, amountCents, expenseCategory);
+        log.info("Reversed expense for period={} category={}", period, expenseCategory);
     }
 
     // -------------------------

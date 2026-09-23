@@ -32,8 +32,7 @@ public class BudgetController {
             @Valid @RequestBody BudgetRequest request) {
 
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Create budget ownerSubject={} monthlyBudget={} period={}",
-                ownerSubject, request.getMonthlyBudget(), request.getPeriod());
+        log.info("Create budget period={}", request.getPeriod());
 
         BudgetResponse response = budgetService.createBudget(ownerSubject, request);
 

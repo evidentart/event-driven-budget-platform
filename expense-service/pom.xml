@@ -51,6 +51,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Actuator health and readiness endpoints -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- JPA -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -131,6 +137,13 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-inprocess</artifactId>
+            <version>${grpc.version}</version>
             <scope>test</scope>
         </dependency>
 

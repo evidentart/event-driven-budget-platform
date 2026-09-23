@@ -23,7 +23,7 @@ public class AIInsightController {
     @GetMapping("/me")
     public ResponseEntity<List<AIInsightResponse>> getMyInsights(JwtAuthenticationToken auth) {
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Fetching all insights for ownerSubject={}", ownerSubject);
+        log.info("Fetching all insights for authenticated owner");
         return ResponseEntity.ok(aiInsightQueryService.getInsightsByOwner(ownerSubject));
     }
 
@@ -33,14 +33,14 @@ public class AIInsightController {
             @PathVariable ExpenseCategory category
     ) {
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Fetching insights for ownerSubject={} in category {}", ownerSubject, category);
+        log.info("Fetching insights in category {}", category);
         return ResponseEntity.ok(aiInsightQueryService.getInsightsByOwnerAndCategory(ownerSubject, category));
     }
 
     @GetMapping("/me/latest")
     public ResponseEntity<AIInsightResponse> getLatestInsight(JwtAuthenticationToken auth) {
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Fetching latest insight for ownerSubject={}", ownerSubject);
+        log.info("Fetching latest insight for authenticated owner");
         return ResponseEntity.ok(aiInsightQueryService.getLatestInsight(ownerSubject));
     }
 
@@ -59,7 +59,7 @@ public class AIInsightController {
             @PathVariable UUID expenseId
     ) {
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Deleting insight for ownerSubject={} expenseId={}", ownerSubject, expenseId);
+        log.info("Deleting insight expenseId={}", expenseId);
         aiInsightQueryService.deleteInsightByOwnerAndExpense(ownerSubject, expenseId);
         return ResponseEntity.noContent().build();
     }
@@ -67,7 +67,7 @@ public class AIInsightController {
     @DeleteMapping("/me")
     public ResponseEntity<Long> deleteAllInsights(JwtAuthenticationToken auth) {
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Deleting all insights for ownerSubject={}", ownerSubject);
+        log.info("Deleting all insights for authenticated owner");
         long deleted = aiInsightQueryService.deleteAllInsightsForOwner(ownerSubject);
         return ResponseEntity.ok(deleted);
     }

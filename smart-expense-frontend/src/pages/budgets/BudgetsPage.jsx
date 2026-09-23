@@ -161,6 +161,7 @@ export default function BudgetsPage() {
       </Paper>
 
       <BudgetDialog
+        key={createOpen ? "create-open" : "create-closed"}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         isSubmitting={createM.isPending}
@@ -180,6 +181,9 @@ export default function BudgetsPage() {
       />
 
       <BudgetDialog
+        key={updateOpen
+          ? `update-open-${currentBudget?.id ?? "none"}-${currentBudget?.monthlyBudget ?? ""}`
+          : "update-closed"}
         open={updateOpen}
         onClose={() => setUpdateOpen(false)}
         isSubmitting={setCurrentM.isPending}

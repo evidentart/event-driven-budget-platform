@@ -119,6 +119,7 @@ export default function ExpensesPage() {
       </Paper>
 
       <ExpenseDialog
+        key={open ? "expense-open" : "expense-closed"}
         open={open}
         onClose={() => {
           setOpen(false);

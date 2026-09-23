@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   Alert,
   Dialog,
@@ -34,12 +34,6 @@ export default function ExpenseDialog({ open, onClose, onSubmit, isSubmitting })
 
   const [values, setValues] = useState(initialValues);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setValues(initialValues());
-    setError("");
-  }, [open]);
 
   const submit = () => {
     const title = values.title.trim();

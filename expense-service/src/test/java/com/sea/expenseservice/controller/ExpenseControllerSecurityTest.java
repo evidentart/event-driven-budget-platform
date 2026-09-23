@@ -82,4 +82,51 @@ class ExpenseControllerSecurityTest {
                 .andExpect(jsonPath("$.timestamp").exists())
                 .andExpect(jsonPath("$.path").value("/api/expenses"));
     }
+
+    @Test
+    void exposesFinancialResponseValuesAsDecimalStrings() throws Exception {
+        UUID expenseId = UUID.randomUUID();
+        when(expenseService.createExpense(eq("alice"), any()))
+                .thenReturn(ExpenseResponse.builder()
+                        .id(expenseId)
+                        .amount("12.34")
+                        .remainingBudgetAfter("5.66")
+                        .build());
+
+        mockMvc.perform(post("/api/expenses")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice")))
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Groceries",
+                                  "amount": "12.34",
+                                  "category": "FOOD",
+                                  "expenseDate": "2026-02-18T18:30:00Z"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").isString())
+                .andExpect(jsonPath("$.amount").value("12.34"))
+                .andExpect(jsonPath("$.remainingBudgetAfter").isString())
+                .andExpect(jsonPath("$.remainingBudgetAfter").value("5.66"));
+    }
+
+    @Test
+    void rejectsAmountsWithMoreThanTwoDecimalPlaces() throws Exception {
+        mockMvc.perform(post("/api/expenses")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice")))
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Groceries",
+                                  "amount": "1.001",
+                                  "category": "FOOD",
+                                  "expenseDate": "2026-02-18T18:30:00Z"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"));
+    }
 }

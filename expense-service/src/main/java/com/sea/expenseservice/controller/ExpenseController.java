@@ -28,7 +28,7 @@ public class ExpenseController {
             @Valid @RequestBody ExpenseRequest request) {
 
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Creating expense for ownerSubject={}", ownerSubject);
+        log.info("Creating expense");
         ExpenseResponse response = expenseService.createExpense(ownerSubject, request);
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
@@ -41,7 +41,7 @@ public class ExpenseController {
     @GetMapping("/me")
     public ResponseEntity<List<ExpenseResponse>> listMyExpenses(JwtAuthenticationToken auth) {
         String ownerSubject = auth.getToken().getSubject();
-        log.info("Listing expenses for ownerSubject={}", ownerSubject);
+        log.info("Listing expenses for authenticated owner");
         return ResponseEntity.ok(expenseService.listExpensesByOwner(ownerSubject));
     }
 

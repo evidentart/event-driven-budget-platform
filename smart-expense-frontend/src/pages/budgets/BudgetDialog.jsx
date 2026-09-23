@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField } from "@mui/material";
 import { normalizePositiveMoney } from "../../utils/money";
 
@@ -26,12 +26,6 @@ export default function BudgetDialog({
   const defaultValues = useMemo(() => normalizeInitialValues(initialValues), [initialValues]);
   const [values, setValues] = useState(defaultValues);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setValues(defaultValues);
-    setError("");
-  }, [defaultValues, open]);
 
   const submit = () => {
     const monthlyBudget = normalizePositiveMoney(values.monthlyBudget);

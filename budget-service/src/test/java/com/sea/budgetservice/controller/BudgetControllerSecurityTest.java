@@ -12,6 +12,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
+import java.math.BigDecimal;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
@@ -117,5 +119,40 @@ class BudgetControllerSecurityTest {
                 .andExpect(jsonPath("$.message").value("Budget conflicts with existing data"))
                 .andExpect(jsonPath("$.timestamp").exists())
                 .andExpect(jsonPath("$.path").value("/api/budgets"));
+    }
+
+    @Test
+    void exposesFinancialResponseValuesAsDecimalStrings() throws Exception {
+        when(budgetService.createBudget(eq("alice"), any()))
+                .thenReturn(BudgetResponse.builder()
+                        .id(UUID.randomUUID())
+                        .monthlyBudget("500.00")
+                        .spent("12.34")
+                        .remaining("487.66")
+                        .percentageUsed(new BigDecimal("2.4680"))
+                        .build());
+
+        mockMvc.perform(post("/api/budgets")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice")))
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"monthlyBudget\":\"500.00\",\"period\":\"2026-02\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.monthlyBudget").isString())
+                .andExpect(jsonPath("$.spent").isString())
+                .andExpect(jsonPath("$.remaining").isString())
+                .andExpect(jsonPath("$.monthlyBudget").value("500.00"))
+                .andExpect(jsonPath("$.remaining").value("487.66"));
+    }
+
+    @Test
+    void rejectsBudgetsWithMoreThanTwoDecimalPlaces() throws Exception {
+        mockMvc.perform(post("/api/budgets")
+                        .with(SecurityMockMvcRequestPostProcessors.jwt()
+                                .jwt(jwt -> jwt.subject("alice")))
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"monthlyBudget\":\"500.001\",\"period\":\"2026-02\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
     }
 }

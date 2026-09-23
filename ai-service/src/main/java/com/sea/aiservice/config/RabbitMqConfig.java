@@ -43,6 +43,15 @@ public class RabbitMqConfig {
     @Value("${app.rabbitmq.dlq-routing-key:ai.command.dead}")
     private String deadLetterRoutingKey;
 
+    @Value("${app.rabbitmq.retry.initial-delay-ms:1000}")
+    private long retryInitialDelayMs = 1_000L;
+
+    @Value("${app.rabbitmq.retry.multiplier:2.0}")
+    private double retryMultiplier = 2.0;
+
+    @Value("${app.rabbitmq.retry.max-delay-ms:5000}")
+    private long retryMaxDelayMs = 5_000L;
+
     @Bean
     public DirectExchange aiCommandExchange() {
         return new DirectExchange(exchangeName, true, false);
@@ -107,9 +116,9 @@ public class RabbitMqConfig {
     public Advice aiListenerRetryAdvice(MessageRecoverer aiMessageRecoverer) {
         RetryPolicy retryPolicy = RetryPolicy.builder()
                 .maxRetries(2)
-                .delay(Duration.ofSeconds(1))
-                .multiplier(2.0)
-                .maxDelay(Duration.ofSeconds(5))
+                .delay(Duration.ofMillis(Math.max(0L, retryInitialDelayMs)))
+                .multiplier(retryMultiplier)
+                .maxDelay(Duration.ofMillis(Math.max(0L, retryMaxDelayMs)))
                 .includes(RetryableAiProcessingException.class,
                         org.springframework.dao.DataAccessException.class)
                 .build();

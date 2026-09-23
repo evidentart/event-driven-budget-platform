@@ -79,7 +79,7 @@ expense-service -> Kafka -> budget-service -> RabbitMQ -> ai-service
   "userId": "11111111-1111-1111-1111-111111111111",
   "title": "Grocery Run",
   "description": "Weekly groceries",
-  "amount": 86.45,
+  "amount": "86.45",
   "category": "FOOD",
   "expenseDate": "2026-02-18T18:30:00"
 }
@@ -109,6 +109,54 @@ docker compose logs -f api-gateway
 docker compose build
 docker compose down
 ```
+
+## Validation
+
+Each backend service can be tested and packaged from its own directory:
+
+```bash
+bash mvnw -B clean verify
+```
+
+The budget service also has one Docker-backed PostgreSQL integration test for
+the PostgreSQL-specific inbox `ON CONFLICT` idempotency boundary:
+
+```bash
+cd budget-service
+bash mvnw -B -Pintegration-tests -Dtest=InboxEventRepositoryIT test
+```
+
+Frontend validation runs from `smart-expense-frontend`:
+
+```bash
+npm ci
+npm test
+npm run lint
+npm run build
+```
+
+GitHub Actions runs the backend clean builds, the isolated PostgreSQL test,
+frontend validation, and `docker compose config --quiet`. CI does not start
+Kafka, RabbitMQ, MongoDB, Keycloak, or Gemini, and ordinary tests do not
+require a Gemini credential.
+
+## Health endpoints
+
+Backend services expose only these unauthenticated health probes:
+
+- `/actuator/health`
+- `/actuator/health/liveness`
+- `/actuator/health/readiness`
+
+Health details remain hidden. PostgreSQL is readiness-critical for the
+database-backed services. Kafka and RabbitMQ health remains observable without
+making expense or budget business operations unready while their outboxes can
+retain work safely. AI readiness includes MongoDB and RabbitMQ because RabbitMQ
+is required for its command-consumer role. Gemini credentials are intentionally
+not part of startup or readiness.
+
+The platform retains at-least-once messaging semantics: Kafka, RabbitMQ, and
+the associated inbox/outbox recovery paths do not claim exactly-once delivery.
 
 ### Containerized Components
 

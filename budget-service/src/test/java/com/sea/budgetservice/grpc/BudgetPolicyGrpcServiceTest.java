@@ -6,6 +6,7 @@ import com.sea.budget.policy.v1.CanSpendResponse;
 import com.sea.budgetservice.policy.AccountingPeriodResolver;
 import com.sea.budgetservice.policy.BudgetPolicyEvaluator;
 import com.sea.budgetservice.repository.BudgetRepository;
+import com.sea.budgetservice.model.Budget;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Test;
 
@@ -49,6 +50,31 @@ class BudgetPolicyGrpcServiceTest {
         assertFalse(observer.response.getAdvisoryAvailable());
         assertEquals("INVALID_REQUEST", observer.response.getStatus());
         verifyNoInteractions(repository);
+    }
+
+    @Test
+    void returnsExactCentFieldsForAValidBudgetRequest() {
+        BudgetRepository repository = mock(BudgetRepository.class);
+        when(repository.findByOwnerSubjectAndPeriod("alice", "2026-02"))
+                .thenReturn(Optional.of(Budget.builder()
+                        .ownerSubject("alice")
+                        .period("2026-02")
+                        .monthlyBudget(new java.math.BigDecimal("100.00"))
+                        .usedBudget(new java.math.BigDecimal("49.99"))
+                        .build()));
+        BudgetPolicyGrpcService service = service(repository);
+        CapturingObserver observer = new CapturingObserver();
+
+        service.canSpend(request("alice", 1), observer);
+
+        assertTrue(observer.response.getAdvisoryAvailable());
+        assertTrue(observer.response.getHasBudget());
+        assertEquals(10_000L, observer.response.getBudgetLimitCents());
+        assertEquals(4_999L, observer.response.getCurrentSpentCents());
+        assertEquals(5_000L, observer.response.getProjectedSpentCents());
+        assertEquals(5_000L, observer.response.getRemainingCentsAfter());
+        assertEquals(5_000, observer.response.getPercentageBasisPoints());
+        assertEquals("ON_TRACK", observer.response.getStatus());
     }
 
     private BudgetPolicyGrpcService service(BudgetRepository repository) {

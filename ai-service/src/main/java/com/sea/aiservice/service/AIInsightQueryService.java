@@ -54,7 +54,7 @@ public class AIInsightQueryService {
                 .filter(insight -> insight.getLifecycleStatus() == InsightLifecycleStatus.ACTIVE)
                 .peek(insight -> insightService.deleteForOwner(ownerSubject, insight.getExpenseId()))
                 .count();
-        log.info("Deleted {} active insights for ownerSubject={}", count, ownerSubject);
+        log.info("Deleted {} active insights for authenticated owner", count);
         return count;
     }
 

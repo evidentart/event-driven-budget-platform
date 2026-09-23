@@ -44,8 +44,7 @@ public class ExpenseService {
         Expense expense = expenseMapper.toEntity(ownerSubject, request);
         Expense saved = expenseRepository.saveAndFlush(expense);
 
-        log.info("Expense created id={} ownerSubject={} amount={} category={}",
-                saved.getId(), saved.getOwnerSubject(), saved.getAmount(), saved.getCategory());
+        log.info("Expense created id={} category={}", saved.getId(), saved.getCategory());
 
         expenseOutboxWriter.enqueueCreated(saved);
 
