@@ -1,76 +1,119 @@
-# Event-Driven-Budget-Platform
+# SmartExpenseAnalyzer
 
-![Smart Expense Demo](smart-expense.gif)
+SmartExpenseAnalyzer is a portfolio-scale personal-finance platform that combines secure REST APIs with synchronous budget policy checks, durable event processing, and asynchronous Gemini-generated insights. A React/Vite frontend uses Keycloak-issued JWTs through Spring Cloud Gateway, while Spring Boot services own user profiles, expenses, budgets, and AI insight workflows.
 
-Distributed event-driven personal finance platform built with Spring Boot microservices. Uses Kafka for domain events, RabbitMQ for async notifications, Keycloak for JWT-based authentication, and integrates Google Gemini API to generate AI-powered financial insights and budget recommendations.
+The project demonstrates how to make financial data consistent across service boundaries while keeping asynchronous work recoverable and user ownership explicit.
 
-## Why This Project Matters
-
-This project demonstrates:
-
-- Microservices architecture with clear service boundaries
-- Secure authentication and authorization with Keycloak + JWT
-- Event-driven design using Kafka and RabbitMQ
-- Mixed communication patterns (REST + gRPC + async messaging)
-- Polyglot persistence (PostgreSQL + MongoDB)
-- Resilience patterns with bounded retries, dead-letter recovery, and graceful service degradation
-- Dockerized microservices and infrastructure components for consistent local/dev environments
-
-## System Flow
-
-1. User logs in from the frontend through Keycloak.
-2. API Gateway validates JWT and routes requests to backend services.
-3. On first profile request, `user-service` auto-creates a user record if missing.
-4. User creates an expense in `expense-service`.
-5. `expense-service` calls `budget-service` via gRPC to get budget status/warning before saving.
-6. Expense is saved to PostgreSQL and published to Kafka.
-7. `budget-service` consumes the Kafka event, updates budget data in PostgreSQL, and publishes a budget event to RabbitMQ.
-8. `ai-service` consumes the RabbitMQ event, generates insights, and stores them in MongoDB.
-9. Frontend fetches budget and provides AI insight APIs for user-facing warnings and recommendations.
-
-AI generation is asynchronous. Retryable Gemini or processing failures follow the existing bounded retry and dead-letter path. Missing Gemini credentials produce an explicit non-retryable generation failure; the AI service can still start without the key, and no fake or fallback insight is generated.
+![SmartExpenseAnalyzer application demo](smart-expense.gif)
 
 ## Architecture
-![Architecture Diagram](architecture_diagram.png)
 
-```text
-Frontend (React + Vite)
-  -> Keycloak Login
-  -> API Gateway (Spring Cloud Gateway, JWT)
+The Mermaid diagram below is the architecture source of truth for the completed system. Docker Compose, GitHub Actions, and Actuator are cross-cutting concerns and are intentionally shown outside the runtime message path.
 
-Gateway routes:
-  /api/users/**    -> user-service
-  /api/expenses/** -> expense-service
-  /api/budgets/**  -> budget-service
-  /api/insights/** -> ai-service
+```mermaid
+flowchart LR
+    browser["User / browser"] --> ui["React + Vite frontend"]
+    ui -->|"Authorization Code + PKCE"| keycloak["Keycloak<br/>identity provider / JWT issuer"]
+    keycloak -->|"JWT for API calls"| ui
+    ui -->|"Bearer JWT"| gateway["Spring Cloud Gateway<br/>JWT validation + routing"]
 
-Event pipeline:
-expense-service -> Kafka -> budget-service -> RabbitMQ -> ai-service
+    subgraph services["Spring Boot services"]
+        user["User Service<br/>profile + admin functions"]
+        expense["Expense Service<br/>CRUD + outbox"]
+        budget["Budget Service<br/>policy + consumers"]
+        ai["AI Service<br/>async command consumer"]
+    end
+
+    gateway -->|"/api/users/**"| user
+    gateway -->|"/api/expenses/**"| expense
+    gateway -->|"/api/budgets/**"| budget
+    gateway -->|"/api/insights/**"| ai
+
+    serviceAuth["Each backend validates JWT<br/>and enforces authorization / ownership"]
+    serviceAuth -.-> user
+    serviceAuth -.-> expense
+    serviceAuth -.-> budget
+    serviceAuth -.-> ai
+
+    expense -->|"gRPC / Protobuf budget advisory<br/>before expense commit; integer cents"| budget
+
+    subgraph postgres["Shared PostgreSQL deployment in local Compose<br/>service-owned tables and state"]
+        userDb["User Service<br/>user / profile state"]
+        expenseDb["Expense Service<br/>expenses + expense outbox"]
+        budgetDb["Budget Service<br/>budgets + Kafka inbox + AI-command outbox"]
+    end
+
+    user --> userDb
+    expense -->|"expense + outbox atomically"| expenseDb
+    budget --> budgetDb
+
+    expenseDb --> expensePublisher["Expense outbox publisher"]
+    expensePublisher -->|"at-least-once event"| kafka["Kafka"]
+    kafka --> budgetInbox["Budget Service Kafka inbox<br/>idempotent budget mutation"]
+    budgetInbox --> budgetDb
+
+    budgetDb --> aiPublisher["AI-command outbox publisher"]
+    aiPublisher -->|"durable command"| rabbit["RabbitMQ"]
+    rabbit -->|"asynchronous command"| ai
+    ai -.->|"retryable failures"| recovery["Retries + confirmed DLQ recovery"]
+    recovery -.-> rabbit
+
+    ai -->|"request / response"| gemini["Gemini API<br/>missing key = explicit non-retryable failure<br/>service starts without key; no fake fallback"]
+    ai --> mongo["MongoDB<br/>insight lifecycle, idempotency, tombstones"]
+
+    ui -.->|"after async processing: retrieve insight"| gateway
+
+    ops["Cross-cutting:<br/>Docker Compose • GitHub Actions • Actuator health/readiness"]
 ```
 
-## Tech Stack
+## End-to-End Data Flow
 
-- Frontend: React, Vite, MUI, React Query, Keycloak JS
-- Backend: Java 21, Spring Boot 4, Spring Security, Spring Data JPA
-- API Gateway: Spring Cloud Gateway (WebFlux)
-- Sync communication: REST, gRPC
-- Async communication: Kafka, RabbitMQ
-- Databases: PostgreSQL (user/expense/budget), MongoDB (AI insights)
-- AI integration: Gemini API with asynchronous generation, bounded retry/dead-letter handling, and explicit failure when credentials are unavailable
-- Containerization: Docker (service-level containerization)
+1. The browser loads the React/Vite frontend and signs in with Keycloak using Authorization Code + PKCE.
+2. The frontend sends the resulting JWT with API calls to Spring Cloud Gateway. The gateway validates the token and routes requests to the appropriate service.
+3. Each backend service validates the JWT again. Resource ownership is derived from the authenticated JWT `sub`; clients do not supply an owner ID.
+4. `expense-service` calls `budget-service` synchronously over gRPC/Protobuf for a budget advisory before committing an expense.
+5. The expense transaction writes the expense and its PostgreSQL outbox record atomically. A publisher later sends the outbox event to Kafka.
+6. `budget-service` consumes the Kafka event at least once, records it through its inbox boundary, and applies the budget mutation idempotently.
+7. The budget transaction writes an AI command outbox record. A publisher later sends the command to RabbitMQ.
+8. `ai-service` consumes the command asynchronously, calls Gemini when credentials are available, and stores the insight or lifecycle state in MongoDB.
+9. The frontend retrieves completed insights through Gateway → `ai-service`; AI generation is not a synchronous expense response.
+
+## Why These Technologies Exist
+
+| Technology | Responsibility and reason for the boundary |
+|---|---|
+| React + Vite | Browser dashboard and API client, using MUI, React Query, and Keycloak JS for expenses, budgets, profiles, and asynchronous insights. |
+| Spring Cloud Gateway | Single browser-facing API entry point, JWT validation, and route-level service separation. |
+| Spring Boot services | Independent ownership of user, expense, budget, and AI application behavior. |
+| Keycloak + JWT | Identity provider and token issuer; application services use the verified token subject for ownership. |
+| PostgreSQL | Transactional application state and outbox/inbox boundaries for user, expense, and budget workflows. |
+| MongoDB | Document-oriented storage for generated insight content and AI lifecycle/idempotency state. |
+| Kafka | Durable expense domain-event path from Expense Service to Budget Service. |
+| RabbitMQ | Command-oriented asynchronous delivery from Budget Service to AI Service, with retry and DLQ recovery. |
+| gRPC + Protobuf | Typed, low-overhead synchronous budget advisory contract before an expense commit; financial values cross it as integer cents. |
+| Gemini | External generation provider for structured budget insights; it is optional for service startup and has no fabricated fallback. |
+| Docker Compose | Reproducible local stack for application services and supporting infrastructure. |
+| GitHub Actions | Automated backend, frontend, PostgreSQL-specific integration, and Compose configuration checks. |
+| Spring Boot Actuator | Bounded liveness/readiness probes for service orchestration and local diagnosis. |
 
 ## Services
 
-| Service | Port | Responsibility | Database |
+| Service | Port | Responsibility | Primary state |
 |---|---:|---|---|
-| api-gateway | 8080 | Auth + request routing | - |
-| user-service | 4000 | User profile, get-or-create on first login | PostgreSQL |
-| expense-service | 4001 | Expense CRUD, gRPC budget pre-check, Kafka producer | PostgreSQL |
-| budget-service | 4002 (HTTP), 9001 (gRPC) | Budget logic, Kafka consumer, RabbitMQ producer | PostgreSQL |
-| ai-service | 4003 | RabbitMQ consumer, AI insights API | MongoDB |
-| smart-expense-frontend | 5173 (dev) | UI/dashboard | - |
+| `api-gateway` | 8080 | JWT validation and request routing | — |
+| `user-service` | 4000 | User profile, get-or-create on first profile request, admin functions | PostgreSQL |
+| `expense-service` | 4001 | Expense CRUD, gRPC budget advisory, transactional expense outbox | PostgreSQL |
+| `budget-service` | 4002 HTTP / 9001 gRPC | Budget policy, Kafka inbox/consumer, AI-command outbox | PostgreSQL |
+| `ai-service` | 4003 | RabbitMQ command consumer, Gemini integration, insight API | MongoDB |
+| `smart-expense-frontend` | 5173 dev / 80 Compose | Dashboard and authenticated API client | — |
 
-## Example API
+## Financial and Time Contracts
+
+- Java/domain calculations use `BigDecimal`; expense validation accepts positive values with at most two decimal places.
+- REST examples and frontend money payloads use decimal strings so the browser does not rely on binary floating-point arithmetic. Service responses expose money as strings as well.
+- Kafka expense events and the gRPC budget policy contract use integer cents. Conversions require exact two-decimal values.
+- API and event timestamps use `Instant`, for example `2026-02-18T18:30:00Z`.
+- Accounting periods use a configurable timezone through `APP_ACCOUNTING_TIME_ZONE`; UTC is the default.
 
 ### Create Expense
 
@@ -88,13 +131,31 @@ expense-service -> Kafka -> budget-service -> RabbitMQ -> ai-service
 
 Expense ownership is derived from the authenticated JWT `sub`; clients do not supply a `userId`.
 
-## Run with Docker
+## Reliability and Consistency
+
+- Messaging is at-least-once. Kafka, RabbitMQ, and recovery paths do not claim exactly-once delivery.
+- Expense persistence and the expense outbox are written in one transaction. Budget persistence and the AI-command outbox use the same boundary.
+- The budget inbox prevents duplicate expense events from applying the same financial mutation repeatedly.
+- Outbox publishers use leases and retryable backoff so unsent work remains recoverable. Kafka consumer failures use retry/DLT handling.
+- AI commands are processed asynchronously. RabbitMQ retryable failures use retry and confirmed DLQ recovery; malformed or explicitly non-retryable commands do not follow the retry path.
+- AI insight writes use owner/expense/generation identity and lifecycle tombstones so duplicate commands and stale generation commands remain safe.
+- Missing `GEMINI_API_KEY` is an explicit non-retryable generation failure. The AI service can still start without the key, and no fake or fallback insight is generated.
+
+## Security and Ownership
+
+- Keycloak is the identity provider and JWT issuer; it is not the application user database.
+- The gateway and each backend service validate JWTs. Service-level authorization scopes user resources to the verified JWT `sub`.
+- Expenses, budgets, and AI insights use the JWT `sub` as the canonical owner. The client cannot choose another owner by posting a user ID.
+- User administration endpoints use the applicable admin authorization; ordinary profile and resource operations remain owner-scoped.
+- Actuator health probes are the intentionally unauthenticated operational endpoints documented below.
+
+## Run Locally with Docker Compose
 
 ### Prerequisites
 
-- Docker Desktop with Compose
+- Docker Desktop with Compose.
 
-Copy `.env.example` to `.env`, review the development-only credentials, and start the complete local stack from the repository root:
+Copy `.env.example` to `.env`, review the development-only credentials, and start the stack from the repository root:
 
 ```bash
 docker compose up -d --build
@@ -103,7 +164,9 @@ docker compose ps
 
 Open the frontend at `http://localhost:5173`, Keycloak at `http://localhost:8181`, the gateway at `http://localhost:8080`, and RabbitMQ management at `http://localhost:15672`.
 
-The default development user is `dev-user` with password `dev-only-keycloak-user-password`. These credentials are local-development fixtures only.
+The imported development user is `dev-user` with password `dev-only-keycloak-user-password`. These are local-development fixtures only. Leave `GEMINI_API_KEY` blank for the Gemini-independent stack, or provide it to enable generation; missing credentials do not prevent AI service startup.
+
+A useful walkthrough is: sign in, open or create the profile, create a monthly budget, create an expense, inspect the returned budget advisory, then refresh the insight view after the asynchronous RabbitMQ/Gemini workflow completes.
 
 Useful commands:
 
@@ -113,16 +176,15 @@ docker compose build
 docker compose down
 ```
 
-## Validation
+## Testing and GitHub Actions CI
 
-Each backend service can be tested and packaged from its own directory:
+Backend services can be tested and packaged from their own directories:
 
 ```bash
 bash mvnw -B clean verify
 ```
 
-The budget service also has one Docker-backed PostgreSQL integration test for
-the PostgreSQL-specific inbox `ON CONFLICT` idempotency boundary:
+The budget service also has one Docker-backed PostgreSQL integration test for the PostgreSQL-specific inbox `ON CONFLICT` idempotency boundary:
 
 ```bash
 cd budget-service
@@ -138,12 +200,9 @@ npm run lint
 npm run build
 ```
 
-GitHub Actions runs the backend clean builds, the isolated PostgreSQL test,
-frontend validation, and `docker compose config --quiet`. CI does not start
-Kafka, RabbitMQ, MongoDB, Keycloak, or Gemini, and ordinary tests do not
-require a Gemini credential.
+GitHub Actions runs the backend clean builds, the isolated PostgreSQL test, frontend validation, and `docker compose config --quiet`. CI does not start Kafka, RabbitMQ, MongoDB, Keycloak, or Gemini, and ordinary tests do not require a Gemini credential.
 
-## Health endpoints
+## Observability and Health
 
 Backend services expose only these unauthenticated health probes:
 
@@ -151,32 +210,19 @@ Backend services expose only these unauthenticated health probes:
 - `/actuator/health/liveness`
 - `/actuator/health/readiness`
 
-Health details remain hidden. PostgreSQL is readiness-critical for the
-database-backed services. Kafka and RabbitMQ health remains observable without
-making expense or budget business operations unready while their outboxes can
-retain work safely. AI readiness includes MongoDB and RabbitMQ because RabbitMQ
-is required for its command-consumer role. Gemini credentials are intentionally
-not part of startup or readiness.
+Health details remain hidden. PostgreSQL is readiness-critical for the database-backed services. AI readiness includes MongoDB and RabbitMQ because RabbitMQ is required for its command-consumer role. Kafka and RabbitMQ work can remain recoverable in outboxes without making expense or budget business operations unready. Gemini credentials are intentionally not part of startup or readiness.
 
-The platform retains at-least-once messaging semantics: Kafka, RabbitMQ, and
-the associated inbox/outbox recovery paths do not claim exactly-once delivery.
+## Known Limitations and Tradeoffs
 
-### Containerized Components
+- Docker Compose is a local development/demo stack with development credentials and single-node infrastructure defaults.
+- AI insights are asynchronous and depend on Gemini credentials for successful generation; the system reports failure rather than inventing an insight.
+- Messaging favors recoverability and idempotency with at-least-once delivery instead of exactly-once claims.
+- The isolated PostgreSQL inbox integration test requires Docker; CI runs it in an Ubuntu environment.
+- The repository makes no production-scale, uptime, deployment-history, or business-impact claims.
 
-- api-gateway
-- user-service
-- expense-service
-- budget-service
-- ai-service
-- Keycloak
-- Kafka
-- RabbitMQ
-- PostgreSQL
-- MongoDB
+## Configuration
 
-The backend services use internal Compose DNS names for PostgreSQL, MongoDB, Kafka, RabbitMQ, and Keycloak. Only the frontend, gateway, Keycloak, and RabbitMQ management UI are exposed to the host.
-
-## Environment Variables
+Common configuration values include:
 
 - `SPRING_DATASOURCE_URL`
 - `SPRING_DATASOURCE_USERNAME`
@@ -187,7 +233,8 @@ The backend services use internal Compose DNS names for PostgreSQL, MongoDB, Kaf
 - `KEYCLOAK_JWK_SET_URI`
 - `RABBITMQ_QUEUE_NAME`
 - `RABBITMQ_EXCHANGE_NAME`
-- `GEMINI_API_KEY` 
+- `APP_ACCOUNTING_TIME_ZONE`
+- `GEMINI_API_KEY`
 
 ## License
 
