@@ -2,7 +2,7 @@ package com.sea.userservice.exception;
 
 import lombok.*;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Getter
 @Setter
@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class ApiError {
-    private LocalDateTime timestamp;
+    private Instant timestamp;
     private int status;
     private String error;
     private String message;

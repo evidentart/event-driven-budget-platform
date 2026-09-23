@@ -4,21 +4,21 @@ import { Alert, Box, Button, Paper, Stack, Typography } from "@mui/material";
 
 import { useAuthUser } from "../../auth/useAuthUser";
 import { toErrorMessage } from "../../api/errorMessage";
-import { createExpense, deleteExpense, listExpensesByUser } from "../../api/expenses.api";
+import { createExpense, deleteExpense, listMyExpenses } from "../../api/expenses.api";
 import ExpenseDialog from "./ExpenseDialog";
 
 export default function ExpensesPage() {
   const qc = useQueryClient();
-  const { dbUserId, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
+  const { me, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
   const [open, setOpen] = useState(false);
   const [createError, setCreateError] = useState("");
   const [deleteError, setDeleteError] = useState("");
 
-  const enabled = useMemo(() => Boolean(dbUserId), [dbUserId]);
+  const enabled = useMemo(() => Boolean(me), [me]);
 
   const expensesQ = useQuery({
-    queryKey: ["expenses", dbUserId],
-    queryFn: () => listExpensesByUser(dbUserId),
+    queryKey: ["expenses", "me"],
+    queryFn: listMyExpenses,
     enabled,
   });
 
@@ -28,7 +28,7 @@ export default function ExpensesPage() {
       setCreateError("");
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["expenses", dbUserId] });
+      await qc.invalidateQueries({ queryKey: ["expenses", "me"] });
       setOpen(false);
     },
     onError: (error) => {
@@ -41,7 +41,7 @@ export default function ExpensesPage() {
     onMutate: () => {
       setDeleteError("");
     },
-    onSuccess: async () => qc.invalidateQueries({ queryKey: ["expenses", dbUserId] }),
+    onSuccess: async () => qc.invalidateQueries({ queryKey: ["expenses", "me"] }),
     onError: (error) => {
       setDeleteError(toErrorMessage(error, "Could not delete expense."));
     },
@@ -51,7 +51,7 @@ export default function ExpensesPage() {
   if (meIsError) {
     return <Alert severity="error">{toErrorMessage(meError, "Could not load user profile.")}</Alert>;
   }
-  if (!dbUserId) return <Typography>Unable to load user id from profile.</Typography>;
+  if (!me) return <Typography>Unable to load authenticated profile.</Typography>;
 
   return (
     <Stack spacing={2}>
@@ -103,8 +103,8 @@ export default function ExpensesPage() {
                 {expense.budgetStatus ? (
                   <Typography variant="caption" color="text.secondary">
                     Budget Status: {expense.budgetStatus}
-                    {typeof expense.remainingBudgetCentsAfter === "number"
-                      ? ` | Remaining cents after: ${expense.remainingBudgetCentsAfter}`
+                    {expense.remainingBudgetAfter != null
+                      ? ` | Remaining after: $${expense.remainingBudgetAfter}`
                       : ""}
                   </Typography>
                 ) : null}
@@ -119,13 +119,14 @@ export default function ExpensesPage() {
       </Paper>
 
       <ExpenseDialog
+        key={open ? "expense-open" : "expense-closed"}
         open={open}
         onClose={() => {
           setOpen(false);
           setCreateError("");
         }}
         isSubmitting={createM.isPending}
-        onSubmit={(values) => createM.mutate({ ...values, userId: dbUserId })}
+        onSubmit={(values) => createM.mutate(values)}
       />
     </Stack>
   );

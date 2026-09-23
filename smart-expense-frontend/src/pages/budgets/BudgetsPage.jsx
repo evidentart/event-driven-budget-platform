@@ -9,23 +9,23 @@ import BudgetDialog from "./BudgetDialog";
 
 export default function BudgetsPage() {
   const qc = useQueryClient();
-  const { dbUserId, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
+  const { me, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
   const [createOpen, setCreateOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [actionError, setActionError] = useState("");
 
-  const enabled = useMemo(() => Boolean(dbUserId), [dbUserId]);
+  const enabled = useMemo(() => Boolean(me), [me]);
 
   const currentQ = useQuery({
-    queryKey: ["budget.current", dbUserId],
-    queryFn: () => getCurrentBudget(dbUserId),
+    queryKey: ["budget.current", "me"],
+    queryFn: getCurrentBudget,
     enabled,
     retry: false,
   });
 
   const allQ = useQuery({
-    queryKey: ["budgets", dbUserId],
-    queryFn: () => listBudgets(dbUserId),
+    queryKey: ["budgets", "me"],
+    queryFn: listBudgets,
     enabled,
   });
 
@@ -35,8 +35,8 @@ export default function BudgetsPage() {
       setActionError("");
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["budgets", dbUserId] });
-      await qc.invalidateQueries({ queryKey: ["budget.current", dbUserId] });
+      await qc.invalidateQueries({ queryKey: ["budgets", "me"] });
+      await qc.invalidateQueries({ queryKey: ["budget.current", "me"] });
       setCreateOpen(false);
     },
     onError: (error) => {
@@ -45,13 +45,13 @@ export default function BudgetsPage() {
   });
 
   const setCurrentM = useMutation({
-    mutationFn: ({ monthlyBudget }) => setCurrentBudget(dbUserId, monthlyBudget),
+    mutationFn: ({ monthlyBudget }) => setCurrentBudget(monthlyBudget),
     onMutate: () => {
       setActionError("");
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["budget.current", dbUserId] });
-      await qc.invalidateQueries({ queryKey: ["budgets", dbUserId] });
+      await qc.invalidateQueries({ queryKey: ["budget.current", "me"] });
+      await qc.invalidateQueries({ queryKey: ["budgets", "me"] });
       setUpdateOpen(false);
     },
     onError: (error) => {
@@ -65,8 +65,8 @@ export default function BudgetsPage() {
       setActionError("");
     },
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ["budgets", dbUserId] });
-      await qc.invalidateQueries({ queryKey: ["budget.current", dbUserId] });
+      await qc.invalidateQueries({ queryKey: ["budgets", "me"] });
+      await qc.invalidateQueries({ queryKey: ["budget.current", "me"] });
     },
     onError: (error) => {
       setActionError(toErrorMessage(error, "Could not delete budget."));
@@ -77,7 +77,7 @@ export default function BudgetsPage() {
   if (meIsError) {
     return <Alert severity="error">{toErrorMessage(meError, "Could not load user profile.")}</Alert>;
   }
-  if (!dbUserId) return <Typography>Unable to load user id from profile.</Typography>;
+  if (!me) return <Typography>Unable to load authenticated profile.</Typography>;
 
   const currentBudget = currentQ.data;
 
@@ -161,6 +161,7 @@ export default function BudgetsPage() {
       </Paper>
 
       <BudgetDialog
+        key={createOpen ? "create-open" : "create-closed"}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         isSubmitting={createM.isPending}
@@ -168,7 +169,6 @@ export default function BudgetsPage() {
         submitLabel="Create"
         onSubmit={(values) => {
           const payload = {
-            userId: dbUserId,
             monthlyBudget: values.monthlyBudget,
           };
 
@@ -181,6 +181,9 @@ export default function BudgetsPage() {
       />
 
       <BudgetDialog
+        key={updateOpen
+          ? `update-open-${currentBudget?.id ?? "none"}-${currentBudget?.monthlyBudget ?? ""}`
+          : "update-closed"}
         open={updateOpen}
         onClose={() => setUpdateOpen(false)}
         isSubmitting={setCurrentM.isPending}

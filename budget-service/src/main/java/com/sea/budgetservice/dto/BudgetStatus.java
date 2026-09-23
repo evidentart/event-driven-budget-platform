@@ -17,5 +17,8 @@ public enum BudgetStatus {
     NEAR_LIMIT,
 
     // Over 100% used
-    EXCEEDED
+    EXCEEDED,
+
+    // No matching budget exists for the requested period
+    NO_BUDGET
 }

@@ -4,26 +4,26 @@ import { Alert, Box, Button, Paper, Stack, Typography } from "@mui/material";
 
 import { useAuthUser } from "../../auth/useAuthUser";
 import { toErrorMessage } from "../../api/errorMessage";
-import { deleteInsightByExpense, listInsights } from "../../api/insights.api";
+import { deleteInsightByExpense, listMyInsights } from "../../api/insights.api";
 
 export default function InsightsPage() {
   const qc = useQueryClient();
-  const { dbUserId, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
+  const { me, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
 
   const insightsQ = useQuery({
-    queryKey: ["insights", dbUserId],
-    queryFn: () => listInsights(dbUserId),
-    enabled: !!dbUserId,
+    queryKey: ["insights", "me"],
+    queryFn: listMyInsights,
+    enabled: !!me,
   });
 
   const deleteM = useMutation({
-    mutationFn: ({ userId, expenseId }) => deleteInsightByExpense(userId, expenseId),
-    onSuccess: async () => qc.invalidateQueries({ queryKey: ["insights", dbUserId] }),
+    mutationFn: ({ expenseId }) => deleteInsightByExpense(expenseId),
+    onSuccess: async () => qc.invalidateQueries({ queryKey: ["insights", "me"] }),
   });
 
   if (meLoading) return <Typography>Loading profile...</Typography>;
   if (meIsError) return <Alert severity="error">{toErrorMessage(meError, "Could not load user profile.")}</Alert>;
-  if (!dbUserId) return <Typography>Unable to load user id from profile.</Typography>;
+  if (!me) return <Typography>Unable to load authenticated profile.</Typography>;
 
   return (
     <Stack spacing={2}>
@@ -88,7 +88,7 @@ export default function InsightsPage() {
                 <Box>
                   <Button
                     color="error"
-                    onClick={() => deleteM.mutate({ userId: dbUserId, expenseId: insight.expenseId })}
+                    onClick={() => deleteM.mutate({ expenseId: insight.expenseId })}
                   >
                     Delete Insight
                   </Button>

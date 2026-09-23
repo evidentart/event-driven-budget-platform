@@ -4,8 +4,7 @@ import jakarta.validation.constraints.*;
 import lombok.*;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.UUID;
+import java.time.Instant;
 
 import com.sea.expenseservice.model.ExpenseType;
 
@@ -16,9 +15,6 @@ import com.sea.expenseservice.model.ExpenseType;
 @Builder
 public class ExpenseRequest {
 
-    @NotNull(message = "User ID is required")
-    private UUID userId;
-
     @NotBlank(message = "Title is required")
     @Size(max = 100, message = "Title must not exceed 100 characters")
     private String title;
@@ -28,6 +24,7 @@ public class ExpenseRequest {
 
     @NotNull(message = "Amount is required")
     @DecimalMin(value = "0.01", inclusive = true, message = "Amount must be greater than 0")
+    @Digits(integer = 10, fraction = 2, message = "Amount must be a valid amount with at most two decimal places")
     private BigDecimal amount;
 
     @NotNull(message = "Category is required")
@@ -35,5 +32,5 @@ public class ExpenseRequest {
 
     @NotNull(message = "Expense date is required")
     //@FutureOrPresent(message = "Expense date cannot be in the past") // optional
-    private LocalDateTime expenseDate;
+    private Instant expenseDate;
 }

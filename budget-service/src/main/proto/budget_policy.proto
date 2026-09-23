@@ -6,21 +6,28 @@ option java_multiple_files = true;
 option java_package = "com.sea.budget.policy.v1";
 option java_outer_classname = "BudgetPolicyProto";
 
+import "google/protobuf/timestamp.proto";
+
 service BudgetPolicyService {
   rpc CanSpend (CanSpendRequest) returns (CanSpendResponse);
 }
 
 message CanSpendRequest {
-  string user_id = 1;          // UUID string
-  string period = 2;           // YYYY-MM
-  string category = 3;         // e.g. FOOD, TRANSPORT (string avoids enum coupling)
-  int64 amount_cents = 4;      // expense amount in cents
+  string owner_subject = 1;    // verified Keycloak sub
+  reserved 2, 3, 4;
+  int64 expense_amount_cents = 5;
+  google.protobuf.Timestamp expense_timestamp = 6;
 }
 
 message CanSpendResponse {
   bool has_budget = 1;
-  bool allowed = 2;                 // recommend warn-only => true
-  int64 remaining_cents_after = 3;  // remaining after applying expense
-  string status = 4;                // HEALTHY/ON_TRACK/CAUTION/NEAR_LIMIT/EXCEEDED/NO_BUDGET/UNKNOWN
-  string warning = 5;               // empty if none
+  reserved 2, 3, 4, 5;
+  bool advisory_available = 6;
+  optional int64 budget_limit_cents = 7;
+  optional int64 current_spent_cents = 8;
+  optional int64 projected_spent_cents = 9;
+  optional int64 remaining_cents_after = 10;
+  optional int32 percentage_basis_points = 11;
+  string status = 12;
+  string warning = 13;
 }

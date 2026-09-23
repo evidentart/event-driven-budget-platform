@@ -5,8 +5,24 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          jwk-set-uri: http://keycloak:8080/realms/budget-portal/protocol/openid-connect/certs
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8181/realms/budget-portal}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8181/realms/budget-portal/protocol/openid-connect/certs}
   jpa:
     open-in-view: false
 server:
   port: 4000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db

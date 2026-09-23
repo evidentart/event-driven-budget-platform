@@ -1,11 +1,10 @@
 package com.sea.expenseservice.service;
 
-import com.sea.budget.policy.v1.CanSpendResponse;
 import com.sea.expenseservice.dto.ExpenseRequest;
 import com.sea.expenseservice.dto.ExpenseResponse;
 import com.sea.expenseservice.exception.ExpenseNotFoundException;
+import com.sea.expenseservice.grpc.BudgetAdvisory;
 import com.sea.expenseservice.grpc.BudgetPolicyClient;
-import com.sea.expenseservice.kafka.ExpenseEventProducer;
 import com.sea.expenseservice.mapper.ExpenseMapper;
 import com.sea.expenseservice.model.Expense;
 import com.sea.expenseservice.repository.ExpenseRepository;
@@ -14,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,108 +24,57 @@ public class ExpenseService {
     private final ExpenseRepository expenseRepository;
     private final ExpenseMapper expenseMapper;
     private final BudgetPolicyClient budgetPolicyClient;
-    private final ExpenseEventProducer expenseEventProducer;
+    private final ExpenseOutboxWriter expenseOutboxWriter;
 
     @Transactional
-    public ExpenseResponse createExpense(ExpenseRequest request) {
+    public ExpenseResponse createExpense(String ownerSubject, ExpenseRequest request) {
 
-        String period = YearMonth.from(request.getExpenseDate()).toString();
-        String category = request.getCategory().name();
+        BudgetAdvisory advisory = budgetPolicyClient.evaluate(
+                ownerSubject,
+                request.getExpenseDate(),
+                request.getAmount()
+        );
 
-        CanSpendResponse decision = null;
-
-        try {
-            decision = budgetPolicyClient.canSpend(
-                    request.getUserId().toString(),
-                    period,
-                    category,
-                    request.getAmount()
-            );
-
-            if (!decision.getWarning().isBlank()) {
-                log.warn("Budget warning userId={} period={} status={} warning={}",
-                        request.getUserId(), period, decision.getStatus(), decision.getWarning());
-            }
-        } catch (Exception ex) {
-            // Option B: warn-only, continue creating the expense.
-            log.warn("Budget gRPC check failed (warn-only mode continues): {}", ex.getMessage(), ex);
+        if (!advisory.available()) {
+            log.warn("Budget gRPC advisory unavailable; expense creation will continue");
+        } else if (!advisory.warning().isBlank()) {
+            log.warn("Budget advisory status={} warning={}", advisory.status(), advisory.warning());
         }
 
-        Expense expense = expenseMapper.toEntity(request);
+        Expense expense = expenseMapper.toEntity(ownerSubject, request);
         Expense saved = expenseRepository.saveAndFlush(expense);
 
-        log.info("Expense created id={} userId={} amount={} category={}",
-                saved.getId(), saved.getUserId(), saved.getAmount(), saved.getCategory());
+        log.info("Expense created id={} category={}", saved.getId(), saved.getCategory());
 
-        expenseEventProducer.sendExpenseCreated(saved);
+        expenseOutboxWriter.enqueueCreated(saved);
 
-
-        ExpenseResponse base = expenseMapper.toResponse(saved);
-
-        // ---- Option B response enrichment ----
-        String budgetStatus;
-        String budgetWarning;
-        Long remaining;
-
-        if (decision == null) {
-            budgetStatus = "UNAVAILABLE";
-            budgetWarning = "Budget check unavailable right now.";
-            remaining = null;
-        } else {
-            budgetStatus = decision.getStatus().isBlank() ? "UNKNOWN" : decision.getStatus();
-            budgetWarning = decision.getWarning(); // can be empty
-            remaining = decision.getRemainingCentsAfter();
-        }
-
-        return ExpenseResponse.builder()
-                .id(base.getId())
-                .title(base.getTitle())
-                .description(base.getDescription())
-                .amount(base.getAmount())
-                .category(base.getCategory())
-                .expenseDate(base.getExpenseDate())
-                .budgetStatus(budgetStatus)
-                .budgetWarning(budgetWarning)
-                .remainingBudgetCentsAfter(remaining)
-                .build();
+        return expenseMapper.toResponse(
+                saved, advisory.status(), advisory.warning(), advisory.remainingCentsAfter());
     }
 
     @Transactional(readOnly = true)
-    public ExpenseResponse getExpenseById(UUID expenseId) {
-        Expense expense = expenseRepository.findById(expenseId)
+    public ExpenseResponse getExpenseById(String ownerSubject, UUID expenseId) {
+        Expense expense = expenseRepository.findByIdAndOwnerSubject(expenseId, ownerSubject)
                 .orElseThrow(() -> new ExpenseNotFoundException(expenseId));
 
         // For non-create endpoints, budget decision isn't calculated. Return without warning fields.
-        return ExpenseResponse.builder()
-                .id(expense.getId())
-                .title(expense.getTitle())
-                .description(expense.getDescription())
-                .amount(expense.getAmount())
-                .category(expense.getCategory())
-                .expenseDate(expense.getExpenseDate())
-                .build();
+        return expenseMapper.toResponse(expense);
     }
 
     @Transactional(readOnly = true)
-    public List<ExpenseResponse> listExpensesByUser(UUID userId) {
-        return expenseRepository.findByUserId(userId)
+    public List<ExpenseResponse> listExpensesByOwner(String ownerSubject) {
+        return expenseRepository.findByOwnerSubjectOrderByExpenseDateDesc(ownerSubject)
                 .stream()
-                .map(e -> ExpenseResponse.builder()
-                        .id(e.getId())
-                        .title(e.getTitle())
-                        .description(e.getDescription())
-                        .amount(e.getAmount())
-                        .category(e.getCategory())
-                        .expenseDate(e.getExpenseDate())
-                        .build())
+                .map(expenseMapper::toResponse)
                 .toList();
     }
 
     @Transactional
-    public void deleteExpense(UUID expenseId) {
-        Expense expense = expenseRepository.findById(expenseId)
+    public void deleteExpense(String ownerSubject, UUID expenseId) {
+        Expense expense = expenseRepository.findByIdAndOwnerSubject(expenseId, ownerSubject)
                 .orElseThrow(() -> new ExpenseNotFoundException(expenseId));
 
+        expenseOutboxWriter.enqueueDeleted(expense);
         expenseRepository.delete(expense);
         log.info("Deleted expense id={}", expenseId);
     }

@@ -48,7 +48,7 @@ public class UserService {
         userMapper.updateEntity(request, user);
         User updated = userRepository.save(user);
 
-        log.info("User profile updated for keycloakId={}", keycloakId);
+        log.info("User profile updated");
         return userMapper.toResponse(updated);
     }
 
@@ -60,7 +60,7 @@ public class UserService {
                 .orElseThrow(() -> new UserNotFoundException("User not found for keycloakId=" + keycloakId));
 
         userRepository.delete(user);
-        log.info("User deleted for keycloakId={}", keycloakId);
+        log.info("User deleted");
     }
 
     // Admin/internal endpoints below (by DB UUID)
@@ -83,11 +83,6 @@ public class UserService {
     @Transactional(readOnly = true)
     public boolean userExistsByDbId(UUID userId) {
         return userRepository.existsById(userId);
-    }
-
-    @Transactional(readOnly = true)
-    public boolean userExistsByKeycloakId(String keycloakId) {
-        return userRepository.existsByKeycloakId(keycloakId);
     }
 
     private UserResponse provisionFromToken(JwtAuthenticationToken auth) {
@@ -113,7 +108,7 @@ public class UserService {
 
         try {
             User saved = userRepository.save(user);
-            log.info("Provisioned new user: id={}, keycloakId={}", saved.getId(), saved.getKeycloakId());
+            log.info("Provisioned new user id={}", saved.getId());
             return userMapper.toResponse(saved);
         } catch (DataIntegrityViolationException e) {
             // Race condition: 2 requests at the same time. Unique index wins.

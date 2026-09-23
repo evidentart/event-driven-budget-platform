@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Button, Paper, Stack, TextField, Typography } from "@mui/material";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -9,16 +9,12 @@ import { updateMyProfile } from "../../api/users.api";
 export default function ProfilePage() {
   const qc = useQueryClient();
   const { me, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
-  const [form, setForm] = useState({ firstName: "", lastName: "", phoneNumber: "" });
-
-  useEffect(() => {
-    if (!me) return;
-    setForm({
-      firstName: me.firstName || "",
-      lastName: me.lastName || "",
-      phoneNumber: me.phoneNumber || "",
-    });
-  }, [me]);
+  const [formOverride, setFormOverride] = useState(null);
+  const form = useMemo(() => formOverride ?? {
+      firstName: me?.firstName || "",
+      lastName: me?.lastName || "",
+      phoneNumber: me?.phoneNumber || "",
+    }, [formOverride, me]);
 
   const saveM = useMutation({
     mutationFn: updateMyProfile,
@@ -47,17 +43,17 @@ export default function ProfilePage() {
           <TextField
             label="First Name"
             value={form.firstName}
-            onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+            onChange={(e) => setFormOverride((f) => ({ ...(f ?? form), firstName: e.target.value }))}
           />
           <TextField
             label="Last Name"
             value={form.lastName}
-            onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+            onChange={(e) => setFormOverride((f) => ({ ...(f ?? form), lastName: e.target.value }))}
           />
           <TextField
             label="Phone Number"
             value={form.phoneNumber}
-            onChange={(e) => setForm((f) => ({ ...f, phoneNumber: e.target.value }))}
+            onChange={(e) => setFormOverride((f) => ({ ...(f ?? form), phoneNumber: e.target.value }))}
           />
 
           <Button variant="contained" onClick={() => saveM.mutate(form)} disabled={saveM.isPending}>

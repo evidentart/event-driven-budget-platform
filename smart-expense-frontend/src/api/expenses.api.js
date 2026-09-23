@@ -1,7 +1,7 @@
 import { http } from "./http";
 
-export async function listExpensesByUser(userId) {
-  const { data } = await http.get(`/api/expenses/user/${userId}`);
+export async function listMyExpenses() {
+  const { data } = await http.get("/api/expenses/me");
   return data;
 }
 

@@ -6,9 +6,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDateTime;
-import java.time.YearMonth;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -16,7 +14,7 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "budgets",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "period"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"owner_subject", "period"})
 )
 @Getter
 @Setter
@@ -29,8 +27,8 @@ public class Budget {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
+    @Column(name = "owner_subject", nullable = false, length = 255)
+    private String ownerSubject;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal monthlyBudget;
@@ -53,34 +51,11 @@ public class Budget {
 
     @CreationTimestamp
     @Column(name = "created_date", updatable = false)
-    private LocalDateTime createdDate;
+    private Instant createdDate;
 
     @UpdateTimestamp
     @Column(name = "updated_date")
-    private LocalDateTime updatedDate;
+    private Instant updatedDate;
 
-    public BigDecimal getRemainingBudget() {
-        if (monthlyBudget == null) return BigDecimal.ZERO;
-        return monthlyBudget.subtract(usedBudget == null ? BigDecimal.ZERO : usedBudget);
-    }
-
-    public double getPercentageUsed() {
-        if (monthlyBudget == null || monthlyBudget.compareTo(BigDecimal.ZERO) <= 0) return 0.0;
-        BigDecimal used = usedBudget == null ? BigDecimal.ZERO : usedBudget;
-        return used
-                .divide(monthlyBudget, 4, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100))
-                .doubleValue();
-    }
-
-    public boolean isBudgetExceeded() {
-        if (monthlyBudget == null) return false;
-        BigDecimal used = usedBudget == null ? BigDecimal.ZERO : usedBudget;
-        return used.compareTo(monthlyBudget) > 0;
-    }
-
-    public static String getCurrentPeriod() {
-        return YearMonth.now().toString(); // "YYYY-MM"
-    }
 }
 

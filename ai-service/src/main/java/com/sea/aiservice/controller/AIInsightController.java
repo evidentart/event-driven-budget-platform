@@ -6,6 +6,7 @@ import com.sea.aiservice.service.AIInsightQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,49 +20,55 @@ public class AIInsightController {
 
     private final AIInsightQueryService aiInsightQueryService;
 
-    @GetMapping("/{userId}")
-    public ResponseEntity<List<AIInsightResponse>> getInsightsByUser(@PathVariable UUID userId) {
-        log.info("Fetching all insights for user: {}", userId);
-        return ResponseEntity.ok(aiInsightQueryService.getInsightsByUser(userId));
+    @GetMapping("/me")
+    public ResponseEntity<List<AIInsightResponse>> getMyInsights(JwtAuthenticationToken auth) {
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Fetching all insights for authenticated owner");
+        return ResponseEntity.ok(aiInsightQueryService.getInsightsByOwner(ownerSubject));
     }
 
-    @GetMapping("/{userId}/category/{category}")
+    @GetMapping("/me/category/{category}")
     public ResponseEntity<List<AIInsightResponse>> getInsightsByCategory(
-            @PathVariable UUID userId,
+            JwtAuthenticationToken auth,
             @PathVariable ExpenseCategory category
     ) {
-        log.info("Fetching insights for user {} in category {}", userId, category);
-        return ResponseEntity.ok(aiInsightQueryService.getInsightsByUserAndCategory(userId, category));
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Fetching insights in category {}", category);
+        return ResponseEntity.ok(aiInsightQueryService.getInsightsByOwnerAndCategory(ownerSubject, category));
     }
 
-    @GetMapping("/{userId}/latest")
-    public ResponseEntity<AIInsightResponse> getLatestInsight(@PathVariable UUID userId) {
-        log.info("Fetching latest insight for user: {}", userId);
-        return ResponseEntity.ok(aiInsightQueryService.getLatestInsight(userId));
+    @GetMapping("/me/latest")
+    public ResponseEntity<AIInsightResponse> getLatestInsight(JwtAuthenticationToken auth) {
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Fetching latest insight for authenticated owner");
+        return ResponseEntity.ok(aiInsightQueryService.getLatestInsight(ownerSubject));
     }
 
-    @GetMapping("/expense/{expenseId}")
-    public ResponseEntity<AIInsightResponse> getInsightByExpense(@PathVariable UUID expenseId) {
+    @GetMapping("/me/expense/{expenseId}")
+    public ResponseEntity<AIInsightResponse> getInsightByExpense(
+            JwtAuthenticationToken auth,
+            @PathVariable UUID expenseId) {
         log.info("Fetching insight for expense: {}", expenseId);
-        return ResponseEntity.ok(aiInsightQueryService.getInsightByExpense(expenseId));
+        return ResponseEntity.ok(aiInsightQueryService.getInsightByExpense(
+                auth.getToken().getSubject(), expenseId));
     }
 
-    // Delete a single insight for a specific expense.
-    @DeleteMapping("/{userId}/expense/{expenseId}")
+    @DeleteMapping("/me/expense/{expenseId}")
     public ResponseEntity<Void> deleteInsightByExpense(
-            @PathVariable UUID userId,
+            JwtAuthenticationToken auth,
             @PathVariable UUID expenseId
     ) {
-        log.info("Deleting insight for userId={} expenseId={}", userId, expenseId);
-        aiInsightQueryService.deleteInsightByUserAndExpense(userId, expenseId);
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Deleting insight expenseId={}", expenseId);
+        aiInsightQueryService.deleteInsightByOwnerAndExpense(ownerSubject, expenseId);
         return ResponseEntity.noContent().build();
     }
 
-    // Delete all insights for a user.
-    @DeleteMapping("/{userId}")
-    public ResponseEntity<Long> deleteAllInsightsForUser(@PathVariable UUID userId) {
-        log.info("Deleting ALL insights for userId={}", userId);
-        long deleted = aiInsightQueryService.deleteAllInsightsForUser(userId);
+    @DeleteMapping("/me")
+    public ResponseEntity<Long> deleteAllInsights(JwtAuthenticationToken auth) {
+        String ownerSubject = auth.getToken().getSubject();
+        log.info("Deleting all insights for authenticated owner");
+        long deleted = aiInsightQueryService.deleteAllInsightsForOwner(ownerSubject);
         return ResponseEntity.ok(deleted);
     }
 }

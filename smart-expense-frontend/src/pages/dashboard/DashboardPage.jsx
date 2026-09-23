@@ -5,36 +5,36 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthUser } from "../../auth/useAuthUser";
 import { toErrorMessage } from "../../api/errorMessage";
 import { getCurrentBudget } from "../../api/budgets.api";
-import { listExpensesByUser } from "../../api/expenses.api";
+import { listMyExpenses } from "../../api/expenses.api";
 import { getLatestInsight } from "../../api/insights.api";
 import StatCard from "../../components/common/StatCard";
 
 export default function DashboardPage() {
-  const { me, dbUserId, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
+  const { me, isLoading: meLoading, isError: meIsError, error: meError } = useAuthUser();
 
   const budgetQ = useQuery({
-    queryKey: ["budget.current", dbUserId],
-    queryFn: () => getCurrentBudget(dbUserId),
-    enabled: !!dbUserId,
+    queryKey: ["budget.current", "me"],
+    queryFn: getCurrentBudget,
+    enabled: !!me,
     retry: false,
   });
 
   const expensesQ = useQuery({
-    queryKey: ["expenses", dbUserId],
-    queryFn: () => listExpensesByUser(dbUserId),
-    enabled: !!dbUserId,
+    queryKey: ["expenses", "me"],
+    queryFn: listMyExpenses,
+    enabled: !!me,
   });
 
   const latestInsightQ = useQuery({
-    queryKey: ["insights.latest", dbUserId],
-    queryFn: () => getLatestInsight(dbUserId),
-    enabled: !!dbUserId,
+    queryKey: ["insights.latest", "me"],
+    queryFn: getLatestInsight,
+    enabled: !!me,
     retry: false,
   });
 
   if (meLoading) return <Typography>Loading profile...</Typography>;
   if (meIsError) return <Alert severity="error">{toErrorMessage(meError, "Could not load user profile.")}</Alert>;
-  if (!dbUserId) return <Typography>Unable to load user id from profile.</Typography>;
+  if (!me) return <Typography>Unable to load authenticated profile.</Typography>;
 
   const expenseCount = expensesQ.data?.length ?? 0;
   const currentBudget = budgetQ.data;

@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField } from "@mui/material";
+import { normalizePositiveMoney } from "../../utils/money";
 
 function currentMonthValue() {
   return new Date().toISOString().slice(0, 7);
@@ -26,16 +27,10 @@ export default function BudgetDialog({
   const [values, setValues] = useState(defaultValues);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    setValues(defaultValues);
-    setError("");
-  }, [defaultValues, open]);
-
   const submit = () => {
-    const monthlyBudget = Number(values.monthlyBudget);
+    const monthlyBudget = normalizePositiveMoney(values.monthlyBudget);
 
-    if (!Number.isFinite(monthlyBudget) || monthlyBudget <= 0) {
+    if (!monthlyBudget) {
       setError("Monthly budget must be greater than 0.");
       return;
     }

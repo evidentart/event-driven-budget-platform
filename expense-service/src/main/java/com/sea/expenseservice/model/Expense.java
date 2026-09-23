@@ -8,14 +8,14 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
 @Table(
         name = "expenses",
         indexes = {
-                @Index(name = "idx_expenses_user_id", columnList = "user_id"),
+                @Index(name = "idx_expenses_owner_subject", columnList = "owner_subject"),
                 @Index(name = "idx_expenses_expense_date", columnList = "expense_date")
         }
 )
@@ -28,8 +28,8 @@ public class Expense {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
+    @Column(name = "owner_subject", nullable = false, length = 255)
+    private String ownerSubject;
 
     @Column(nullable = false, length = 100)
     private String title;
@@ -45,13 +45,13 @@ public class Expense {
     private ExpenseType category;
 
     @Column(name = "expense_date", nullable = false)
-    private LocalDateTime expenseDate;
+    private Instant expenseDate;
 
     @CreationTimestamp
     @Column(name = "created_date", updatable = false)
-    private LocalDateTime createdDate;
+    private Instant createdDate;
 
     @UpdateTimestamp
     @Column(name = "updated_date")
-    private LocalDateTime updatedDate;
+    private Instant updatedDate;
 }
